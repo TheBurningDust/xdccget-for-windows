@@ -75,8 +75,11 @@ static int socket_make_nonblocking(socket_t * sock) {
 }
 
 static int socket_close(socket_t * sock) {
+#ifdef _MSC_VER
+    closesocket(*sock);
+#else
     close(*sock);
-
+#endif   
 
     *sock = -1;
     return 0;

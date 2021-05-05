@@ -47,6 +47,7 @@ struct xdccGetConfig *getCfg() {
 
 void doCleanUp() {
     uint32_t i;
+
     if (cfg.session)
         irc_destroy_session(cfg.session);
 
@@ -54,8 +55,10 @@ void doCleanUp() {
         sdsfree(cfg.channelsToJoin[i]);
     }
 
-    for (i = 0; cfg.dccDownloadArray[i]; i++) {
-        freeDccDownload(cfg.dccDownloadArray[i]);
+    if (cfg.dccDownloadArray) {
+        for (i = 0; cfg.dccDownloadArray[i]; i++) {
+            freeDccDownload(cfg.dccDownloadArray[i]);
+        }
     }
 
     for (i = 0; i < cfg.numDownloads && downloadContext[i]; i++) {
