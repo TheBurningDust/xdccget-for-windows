@@ -88,3 +88,7 @@ void startChecksumThread(sds md5ChecksumSDS, sds completePath) {
 void enableAnsiColorCodes() {
 
 }
+
+bool shouldColorOutput() {
+    return true;
+}

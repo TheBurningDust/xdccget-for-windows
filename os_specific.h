@@ -1,6 +1,8 @@
 #ifndef OS_SPECIFIC_H
 #define OS_SPECIFIC_H
 
+#include <stdbool.h>
+
 #include "sds.h"
 
 #ifndef _MSC_VER
@@ -20,5 +22,6 @@ void enableAlarm(int seconds);
 
 void startChecksumThread(sds md5ChecksumSDS, sds completePath);
 void enableAnsiColorCodes();
+bool shouldColorOutput();
 
 #endif

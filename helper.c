@@ -17,15 +17,27 @@
 
 #include "helper.h"
 #include "file.h"
+#include "os_specific.h"
 
 #define SPEED_READER_BUFSIZE 1024
 
 struct terminalDimension td;
 
 static inline void logprintf_line (FILE *stream, char *color_code, char *prefix, char *formatString, va_list va_alist) {
-    fprintf(stream, "%s[%s] - ", color_code, prefix);
+    bool isColored = shouldColorOutput();
+    if (isColored) {
+        fprintf(stream, "%s[%s] - ", color_code, prefix);
+    }
+    else {
+        fprintf(stream, "[%s] - ", prefix);
+    }
     vfprintf(stream, formatString, va_alist);
-    fprintf(stream, "%s\n", KNRM);
+    if (isColored) {
+        fprintf(stream, "%s\n", KNRM);
+    }
+    else {
+        fprintf(stream, "\n");
+    }
 }
 
 void logprintf(int logLevel, char *formatString, ...) {

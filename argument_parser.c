@@ -9,6 +9,7 @@
 
 #include "helper.h"
 #include "argument_parser.h"
+#include "os_specific.h"
 
 const char *argp_program_version = "xdccget 1.0";
 const char *argp_program_bug_address ="<nobody@nobody.org>";
@@ -240,8 +241,14 @@ static void eval_long_option(struct xdccGetConfig* cfg, char* option_name, char*
 }
 
 static void print_usage_message() {
-    printf("Usage: xdccget.exe %s<optional options>%s %s<server>%s %s<channel(s)>%s %s<bot cmds>%s\n", KCYN, KNRM, KGRN, KNRM, KGRN, KNRM, KGRN, KNRM);
-    printf("For example: xdccget.exe %s--port=6667%s %s\"irc.sample.net\"%s %s\"#sample-channel\"%s %s\"sample-xdccget-bot xdcc send #42\"%s\n\n", KCYN, KNRM, KGRN, KNRM, KGRN, KNRM, KGRN, KNRM);
+    if (shouldColorOutput()) {
+        printf("Usage: xdccget.exe %s<optional options>%s %s<server>%s %s<channel(s)>%s %s<bot cmds>%s\n", KCYN, KNRM, KGRN, KNRM, KGRN, KNRM, KGRN, KNRM);
+        printf("For example: xdccget.exe %s--port=6667%s %s\"irc.sample.net\"%s %s\"#sample-channel\"%s %s\"sample-xdccget-bot xdcc send #42\"%s\n\n", KCYN, KNRM, KGRN, KNRM, KGRN, KNRM, KGRN, KNRM);
+    }
+    else {
+        printf("Usage: xdccget.exe <optional options> <server> <channel(s)> <bot cmds>\n");
+        printf("For example: xdccget.exe --port=6667 \"irc.sample.net\" \"#sample-channel\" \"sample-xdccget-bot xdcc send #42\"\n\n");
+    }
     printf("The supported optional options are:\n");
     int num_options = sizeof(long_options) / sizeof(struct option);
 

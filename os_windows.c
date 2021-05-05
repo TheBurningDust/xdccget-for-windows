@@ -14,6 +14,8 @@ static HANDLE hTimerQueue = NULL;
 static void (*interrupt_handler) (int) = NULL;
 static void (*alarm_handler) (int) = NULL;
 
+static bool useColoredConsole = false;
+
 static BOOL WINAPI CtrlHandler(DWORD fdwCtrlType) {
     switch (fdwCtrlType)
     {
@@ -106,24 +108,11 @@ void startChecksumThread(sds md5ChecksumSDS, sds completePath) {
 
 static double getWindowsVersion()
 {
-    int ret = 0;
+    double ret = 0;
     NTSTATUS(WINAPI * RtlGetVersion)(LPOSVERSIONINFOEXW);
     OSVERSIONINFOEXW osInfo;
 
-    *
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        (FARPROC*)&RtlGetVersion = GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetVersion");
+    *(FARPROC*)&RtlGetVersion = GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetVersion");
 
     if (NULL != RtlGetVersion)
     {
@@ -159,5 +148,11 @@ void enableAnsiColorCodes() {
         if (!SetConsoleMode(stdoutHandle, outMode)) {
             exitPgm(GetLastError());
         }
+
+        useColoredConsole = true;
     }
+}
+
+bool shouldColorOutput() {
+    return useColoredConsole;
 }
