@@ -3,6 +3,11 @@ This is a project that allows you to download files from IRC with XDCC with an e
 like wget or curl. It supports at the moment Linux, Windows (with cygwin) and BSD-variants. Also OSX with some installed
 ports works.
 
+*Note*: This is an version of xdccget that runs on Windows 7/8 and 10 natively without the need for cygwin dlls. You can 
+compile it for yourself with the free Visual Studio 2019 Community edition or you can just download it [here](https://github.com/TheBurningDust/xdccget-for-windows/releases/tag/1.1) from Github as a precompiled
+binary executable for Windows x64 cpu architecture. You can just run the exe file, the openssl depencency is linked statically. Please
+read the docs below for more infos on the program itself.
+
 ## Quick facts
 * it is free software licenced under the GPL
 * minimal usage of cpu and memory
