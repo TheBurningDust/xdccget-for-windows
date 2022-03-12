@@ -7,6 +7,7 @@
 struct dccDownload {
     sds botNick;
     sds xdccCmd;
+    sds md5;
 };
 
 #define NUM_AVERAGE_SPEED_VALUES 8

@@ -35,6 +35,9 @@ static const char * libirc_strerror[LIBIRC_ERR_MAX] =
 	"SSL initialization failed",
 	"SSL connection failed",
 	"SSL certificate verify failed",
+	"Socket bind error",
+	"Socket listen error",
+	"The ip for the passive dcc mode is invalid."
 };
 
 

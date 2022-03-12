@@ -206,13 +206,24 @@ static int ssl_send(irc_session_t * session) {
 
 #endif
 
+static void print_ssl_error_stack()
+{
+    char buf[256];
+    unsigned long err;
+
+    while ((err = ERR_get_error()) != 0) {
+        ERR_error_string_n(err, buf, sizeof (buf));
+        DBG_WARN("%s\n", buf);
+    }
+}
+#endif
 
 // Handles both SSL and non-SSL reads.
 // Returns -1 in case there is an error and socket should be closed/connection terminated
 // Returns 0 in case there is a temporary error and the call should be retried (SSL_WANTS_WRITE case)
 // Returns a positive number if we actually read something
 
-static int session_socket_read(irc_session_t * session) {
+static int session_socket_read(irc_session_t* session) {
     int length;
 
 #if defined (ENABLE_SSL)
@@ -229,8 +240,8 @@ static int session_socket_read(irc_session_t * session) {
 #endif
 
     length = socket_recv(&session->sock,
-            session->incoming_buf + session->incoming_offset,
-            (sizeof (session->incoming_buf) - 1) - session->incoming_offset);
+        session->incoming_buf + session->incoming_offset,
+        (sizeof(session->incoming_buf) - 1) - session->incoming_offset);
 
     // There is no "retry" errors for regular sockets
     if (length <= 0)
@@ -244,7 +255,7 @@ static int session_socket_read(irc_session_t * session) {
 // Returns 0 in case there is a temporary error and the call should be retried (SSL_WANTS_WRITE case)
 // Returns a positive number if we actually sent something
 
-static int session_socket_write(irc_session_t * session) {
+static int session_socket_write(irc_session_t* session) {
     int length;
 
 #if defined (ENABLE_SSL)
@@ -268,15 +279,3 @@ static int session_socket_write(irc_session_t * session) {
 
     return length;
 }
-
-static void print_ssl_error_stack()
-{
-    char buf[256];
-    unsigned long err;
-
-    while ((err = ERR_get_error()) != 0) {
-        ERR_error_string_n(err, buf, sizeof (buf));
-        DBG_WARN("%s\n", buf);
-    }
-}
-#endif

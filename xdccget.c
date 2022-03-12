@@ -13,7 +13,7 @@
 #include "config.h"
 #include "os_specific.h"
 
-#define NICKLEN 20
+#define NICKLEN 24
 
 #ifdef _MSC_VER
 int usleep(DWORD usec)
@@ -82,6 +82,7 @@ void doCleanUp() {
     sdsfree(cfg.targetDir);
     sdsfree(cfg.nick);
     sdsfree(cfg.login_command);
+    sdsfree(cfg.listen_ip);
     FREE(cfg.dccDownloadArray);
     FREE(cfg.channelsToJoin);
     FREE(downloadContext);
@@ -105,7 +106,14 @@ void output_all_progesses() {
     unsigned int i;
 
     if (numActiveDownloads < 1) {
-        printf("Please wait until the download is started!\r");
+        printf("Please wait");
+        if (cfg.sendDelay != NULL) {
+            if (cfg.sendDelay->timeToSendCommand > time(NULL)) {
+                time_t waitTime = cfg.sendDelay->timeToSendCommand - time(NULL);
+                printf(" %lus", waitTime);
+            }
+        }
+        printf(" until the download is started!\r");
     }
     else {
         for (i = 0; i < numActiveDownloads; i++) {
@@ -149,6 +157,13 @@ static sds extractMD5(const char* string) {
         return sdsnew(md5ChecksumString);
     }
 
+    md5sum = strstr(string, "md5");
+
+    if (md5sum != NULL) {
+        strncpy(md5ChecksumString, md5sum + 4, MD5_STR_SIZE);
+        return sdsnew(md5ChecksumString);
+    }
+
     return NULL;
 }
 
@@ -161,13 +176,16 @@ static void checkMD5ChecksumNotice(const char * event, irc_parser_result_t *resu
         return;
     }
 
-    if (lastDownload == NULL) {
-        return;
-    }
-
     sds md5ChecksumSDS = extractMD5(result->params[1]);
 
     if (md5ChecksumSDS == NULL) {
+        return;
+    }
+
+    if (lastDownload == NULL) {
+        if (cfg.numDownloads == 1) {
+            cfg.dccDownloadArray[0]->md5 = md5ChecksumSDS;
+        }
         return;
     }
 
@@ -264,8 +282,10 @@ void event_join (irc_session_t * session, const char * event, irc_parser_result_
 {
     irc_cmd_user_mode (session, "+i");
 
-    if (cfg.login_command == NULL) {
-        send_xdcc_requests(session);
+    if (cfg.sendDelay == NULL) {
+        if (cfg.login_command == NULL) {
+            send_xdcc_requests(session);
+        }
     }
 }
 
@@ -381,9 +401,7 @@ void callback_dcc_recv_file(irc_session_t * session, irc_dcc_t id, int status, v
     Write(context->fd, data, length);
 
     if (unlikely(progress->sizeRcvd == progress->completeFileSize)) {
-#ifndef _MSC_VER
-        alarm(0);
-#endif
+        enableAlarm(0);
         outputProgress(progress);
         lastDownload = curDownload;
         printf("\nDownload completed!\n");
@@ -399,7 +417,34 @@ void callback_dcc_recv_file(irc_session_t * session, irc_dcc_t id, int status, v
                 irc_cmd_quit(cfg.session, "Goodbye!");
             }
         }
+        else {
+            if (cfg.numDownloads == 1 && cfg.dccDownloadArray[0]->md5) {
+                startChecksumThread(cfg.dccDownloadArray[0]->md5, sdsdup(lastDownload->completePath));
+            }
+        }
     }
+}
+
+void callback_dcc_resume_file_reverse (irc_session_t * session, irc_dcc_t dccid, int status, void * ctx, const char * data, irc_dcc_size_t length, const char * nick, const char *filename, unsigned long token) {
+    struct dccDownloadContext *context = (struct dccDownloadContext*) ctx;
+
+    DBG_OK("got to callback_dcc_resume_file_reverse\n");
+    Seek(context->fd, length, SEEK_SET);
+    DBG_OK("before irc_dcc_accept_reverse!\n");
+
+    struct dccDownloadProgress *tdp = context->progress;
+    tdp->sizeRcvd = length;
+    tdp->sizeNow = length;
+    tdp->sizeLast = length;
+
+    int ret = irc_dcc_accept_reverse (session, dccid, ctx, callback_dcc_recv_file, nick, filename, tdp->completeFileSize, token);
+
+    if (ret != 0) {
+        logprintf(LOG_ERR, "Could wait for bot\nError was: %s\n", irc_strerror(irc_errno(cfg.session)));
+        exitPgm(EXIT_FAILURE);
+    }
+
+    DBG_OK("after irc_dcc_accept_reverse!\n");
 }
 
 void callback_dcc_resume_file (irc_session_t * session, irc_dcc_t dccid, int status, void * ctx, const char * data, irc_dcc_size_t length) {
@@ -424,26 +469,11 @@ void callback_dcc_resume_file (irc_session_t * session, irc_dcc_t dccid, int sta
     DBG_OK("after irc_dcc_accept!\n");
 }
 
-void recvFileRequest (irc_session_t *session, const char *nick, const char *addr, const char *filename, irc_dcc_size_t size, irc_dcc_t dccid)
-{
-    DBG_OK("DCC send [%d] requested from '%s' (%s): %s (%" IRC_DCC_SIZE_T_FORMAT " bytes)\n", dccid, nick, addr, filename, size);
-
-    sds fileName = sdsnew(filename);
-
-    /* chars / and \ are not permitted to appear in a valid filename. if someone wants to send us such a file 
-       then something is definately wrong. so just exit pgm then and print error msg to user.*/
-    char *illegalFilenameChars = "/\\";
-
-    if (sdscontains(fileName, illegalFilenameChars, strlen(illegalFilenameChars))) {
-        /* filename contained bad chars. print msg and exit...*/
-        logprintf(LOG_ERR, "Someone wants to send us a file that contains / or \\. This is not permitted.\nFilename was: %s", fileName);
-        exitPgm(EXIT_FAILURE);
-    }
-
+sds getAbsolutePath() {
     sds lastCharOfTargetDir = sdsdup(cfg.targetDir);
     sdsrange(lastCharOfTargetDir, -1, -1);
     sds absolutePath = sdsempty();
-
+    
     if (!str_equals(lastCharOfTargetDir, getPathSeperator())) {
         DBG_OK("last char of dir was: %s", lastCharOfTargetDir);
         absolutePath = sdscatprintf(absolutePath, "%s%s", cfg.targetDir, getPathSeperator());
@@ -451,6 +481,46 @@ void recvFileRequest (irc_session_t *session, const char *nick, const char *addr
     else {
         absolutePath = sdscatprintf(absolutePath, "%s", cfg.targetDir);
     }
+    
+    sdsfree(lastCharOfTargetDir);
+    return absolutePath;
+}
+
+sds getCompletePath(const char *filename) {
+    sds fileName = sdsnew(filename);
+    sds absolutePath = getAbsolutePath();
+    sds completePath = sdsempty();
+    completePath = sdscatprintf(completePath, "%s%s", absolutePath, fileName);
+    sdsfree(fileName);
+    sdsfree(absolutePath);
+    return completePath;
+}
+
+bool containsIllegalChars(const char *filename) {
+    /* chars / and \ are not permitted to appear in a valid filename. if someone wants to send us such a file 
+       then something is definately wrong. so just exit pgm then and print error msg to user.*/
+    char *illegalFilenameChars = "/\\";
+    sds fileName = sdsnew(filename);
+    bool ret = false;
+    
+    if (sdscontains(fileName, illegalFilenameChars, strlen(illegalFilenameChars))) {
+        ret = true;
+    }
+    
+    sdsfree(fileName);
+    return ret;
+}
+
+struct dccDownloadContext* prepareRecvFileRequest (irc_session_t *session, const char *nick, const char *addr, const char *filename, irc_dcc_size_t size, irc_dcc_t dccid) {
+    DBG_OK("DCC send [%d] requested from '%s' (%s): %s (%" IRC_DCC_SIZE_T_FORMAT " bytes)\n", dccid, nick, addr, filename, size);
+
+    if (containsIllegalChars(filename)) {
+        /* filename contained bad chars. print msg and exit...*/
+        logprintf(LOG_ERR, "Someone wants to send us a file that contains / or \\. This is not permitted.\nFilename was: %s", filename);
+        exitPgm(EXIT_FAILURE);
+    }
+
+    sds absolutePath = getAbsolutePath();
 
     if (!dir_exists(absolutePath)) {
         logprintf(LOG_INFO, "Creating following folder to store downloads: %s", absolutePath);
@@ -460,10 +530,7 @@ void recvFileRequest (irc_session_t *session, const char *nick, const char *addr
         }
     }
 
-    sds completePath = sdsempty();
-    completePath = sdscatprintf(completePath, "%s%s", absolutePath, fileName);
-
-    sdsfree(lastCharOfTargetDir);
+    sds completePath = getCompletePath(filename);
     sdsfree(absolutePath);
 
     struct dccDownloadProgress *progress = newDccProgress(completePath, size);
@@ -475,8 +542,51 @@ void recvFileRequest (irc_session_t *session, const char *nick, const char *addr
     context->progress = progress;
 
     DBG_OK("nick at recvFileReq is %s\n", nick);
+    return context;
+}
 
-    if( file_exists (completePath) ) {
+
+void recvFileRequestReverse (irc_session_t *session, const char *nick, const char *addr, const char *filename, irc_dcc_size_t size, irc_dcc_t dccid, unsigned long token) {
+    struct dccDownloadContext *context = prepareRecvFileRequest(session, nick, addr, filename, size, dccid);
+    sds completePath = getCompletePath(filename);
+
+    if(file_exists (completePath)) {
+        context->fd = Open(completePath, "a");
+
+        off_t fileSize = get_file_size(completePath);
+
+        if (size == (irc_dcc_size_t) fileSize) {
+            logprintf(LOG_ERR, "file %s is already downloaded, exit pgm now.", completePath);
+            exitPgm(EXIT_FAILURE);
+        }
+
+        /* file already exists but is empty. so accept it, rather than resume... */
+        if (fileSize == 0) {
+            goto accept_flag_reverse;
+        }
+
+        logprintf(LOG_INFO, "file %s already exists, need to resume.\n", completePath);
+        irc_dcc_resume_reverse(session, dccid, context, callback_dcc_resume_file_reverse, nick, filename, fileSize, token);
+    } else {
+        int ret;
+        context->fd = Open(completePath, "w");
+        logprintf(LOG_INFO, "file %s does not exist. creating file and waiting for connection from bot.", completePath);
+accept_flag_reverse:
+        ret = irc_dcc_accept_reverse(session, dccid, context, callback_dcc_recv_file, nick, filename, size, token);
+        if (ret != 0) {
+            logprintf(LOG_ERR, "Could not wait for connection from bot\nError was: %s\n", irc_strerror(irc_errno(cfg.session)));
+            exitPgm(EXIT_FAILURE);
+        }
+    }
+    sdsfree(completePath);
+}
+
+
+void recvFileRequest (irc_session_t *session, const char *nick, const char *addr, const char *filename, irc_dcc_size_t size, irc_dcc_t dccid)
+{
+    struct dccDownloadContext *context = prepareRecvFileRequest(session, nick, addr, filename, size, dccid);
+    sds completePath = getCompletePath(filename);
+    if(file_exists (completePath)) {
         context->fd = Open(completePath, "a");
 
         off_t fileSize = get_file_size(completePath);
@@ -506,7 +616,7 @@ accept_flag:
         }
     }
 
-    sdsfree(fileName);
+    sdsfree(completePath);
 }
 
 irc_dcc_size_t getCurrentTransferSpeed() {
@@ -560,7 +670,21 @@ void sleeping() {
     }
 }
 
+bool shouldSendXdccRequests(irc_session_t* session) {
+    if (cfg.sendDelay != NULL && !cfg_get_bit(&cfg, SENDED_FLAG)) {
+        if (cfg.sendDelay->timeToSendCommand < time(NULL)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void print_output_callback (irc_session_t *session) {
+    if (unlikely(shouldSendXdccRequests(session))) {
+        send_xdcc_requests(session);
+    }
+
     if (unlikely(cfg_get_bit(getCfg(), OUTPUT_FLAG))) {
         output_all_progesses();
         cfg_clear_bit(getCfg(), OUTPUT_FLAG);
@@ -575,6 +699,7 @@ void initCallbacks(irc_callbacks_t *callbacks) {
     callbacks->event_connect = event_connect;
     callbacks->event_join = event_join;
     callbacks->event_dcc_send_req = recvFileRequest;
+    callbacks->event_dcc_send_req_reverse = recvFileRequestReverse;
     callbacks->event_ctcp_rep = dump_event;
     callbacks->event_ctcp_action = dump_event;
     callbacks->event_unknown = dump_event;

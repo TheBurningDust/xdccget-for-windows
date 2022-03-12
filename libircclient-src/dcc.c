@@ -25,6 +25,8 @@
 #include "session.h"
 #include "fd_watcher.h"
 #include "../helper.h"
+#include "../xdccget.h"
+#include "portable_endian.h"
 
 #define NO_SSL     0
 #define USE_SSL    1
@@ -278,6 +280,25 @@ static irc_dcc_session_t * libirc_find_dcc_session_by_port(irc_session_t * sessi
     return found;
 }
 
+static irc_dcc_session_t * libirc_find_dcc_session_by_token(irc_session_t * session, unsigned long token, int lock_list) {
+    irc_dcc_session_t * s, *found = 0;
+
+    if (lock_list)
+        libirc_mutex_lock(&session->mutex_dcc);
+
+    for (s = session->dcc_sessions; s; s = s->next) {
+        if (s->passive_connection && s->token == token) {
+            found = s;
+            break;
+        }
+    }
+
+    if (found == 0 && lock_list)
+        libirc_mutex_unlock(&session->mutex_dcc);
+
+    return found;
+}
+
 static void libirc_remove_dcc_session(irc_session_t * session, irc_dcc_session_t * dcc, int lock_list) {
     if (dcc->sock >= 0)
         socket_close(&dcc->sock);
@@ -338,6 +359,9 @@ static void libirc_dcc_add_descriptors(irc_session_t * ircsession) {
             case LIBIRC_STATE_WAITING_FOR_RESUME_ACK:
 
             break;
+            case LIBIRC_STATE_INIT_PASSIVE:
+                fdwatch_set_fd(dcc->sock, FDW_READ);
+                break;
             default:
                 DBG_WARN("unknown state at libirc_dcc_add_descriptors");
                 break;
@@ -384,6 +408,17 @@ static void handleConfirmSizeState(irc_session_t * ircsession, irc_dcc_session_t
     }
 }
 
+static void handleInitPassiveState(irc_session_t* ircsession, irc_dcc_session_t* dcc) {
+    if (likely(fdwatch_check_fd(dcc->sock, FDW_READ))) {
+        socket_t oldSock = dcc->sock;
+        dcc->sock = accept(dcc->sock, NULL, NULL);
+        socket_make_nonblocking(&dcc->sock);
+        dcc->state = LIBIRC_STATE_CONNECTED;
+        socket_close(&oldSock);
+        DBG_OK("handleInitPassiveState2");
+    }
+}
+
 static void libirc_dcc_process_descriptors(irc_session_t * ircsession) {
     irc_dcc_session_t * dcc;
 
@@ -409,6 +444,9 @@ static void libirc_dcc_process_descriptors(irc_session_t * ircsession) {
             break;
             case LIBIRC_STATE_WAITING_FOR_RESUME_ACK:
 
+            break;
+            case LIBIRC_STATE_INIT_PASSIVE:
+                handleInitPassiveState(ircsession, dcc);
             break;
             default:
                 DBG_WARN("unknown state %d at libirc_dcc_process_descriptors!", dcc->state);
@@ -498,6 +536,8 @@ static int libirc_new_dcc_session(irc_session_t * session, unsigned long ip, uns
     dcc->id = session->dcc_last_id++;
     dcc->next = session->dcc_sessions;
     session->dcc_sessions = dcc;
+    dcc->token = 0;
+    dcc->passive_connection = false;
 
     libirc_mutex_unlock(&session->mutex_dcc);
 
@@ -554,7 +594,48 @@ static void accept_dcc_send(irc_session_t * session, const char * nick, const ch
 
 static void accept_reverse_dcc_send(irc_session_t * session, const char * nick, const char * req, char *filename, unsigned long ip, irc_dcc_size_t size, unsigned long token, int ssl) {
     logprintf(LOG_WARN, "got a reverse dcc send request for file %s!", filename);
-    logprintf(LOG_WARN, "xdccget does not support reverse dcc send requests yet!", filename);
+    //logprintf(LOG_WARN, "xdccget does not support reverse dcc send requests yet!", filename);
+    irc_dcc_session_t* dcc = NULL;
+    int err = libirc_new_dcc_session(session, ip, 0, 0, &dcc, ssl);
+    if (err) {
+        session->lasterror = err;
+        return;
+    }
+    
+    dcc->passive_connection = true;
+    dcc->token = token;
+    
+    struct xdccGetConfig *cfg = getCfg();
+    struct sockaddr_in servaddr;
+    uint16_t listen_port = getListenPort(cfg);
+
+    memset(&servaddr, 0, sizeof(servaddr));
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr.s_addr = INADDR_ANY;
+    servaddr.sin_port = htons(listen_port);
+
+    if (bind(dcc->sock, (struct sockaddr*)&servaddr, sizeof(servaddr)) == -1) {
+        DBG_ERR("bind %s", strerror(errno));
+        session->lasterror = LIBIRC_BIND_FAILED;
+        return;
+    }
+    
+    socklen_t len = 1;
+	setsockopt (dcc->sock, SOL_SOCKET, SO_REUSEADDR, (char *) &len, sizeof (len));
+
+    if (listen(dcc->sock, 1) == -1) {
+        DBG_ERR("listen");
+        session->lasterror = LIBIRC_LISTEN_FAILED;
+        return;
+    }
+    
+    (*session->callbacks.event_dcc_send_req_reverse) (session,
+                nick,
+                inet_ntoa(dcc->remote_addr.sin_addr),
+                filename,
+                size,
+                dcc->id,
+                token);
 }
 
 static void libirc_dcc_request(irc_session_t * session, irc_parser_result_t *result, const char * req) {
@@ -618,6 +699,33 @@ static void libirc_dcc_request(irc_session_t * session, irc_parser_result_t *res
     }
 #endif
 #ifdef _MSC_VER
+    else if (sscanf_s(req, "DCC ACCEPT file.ext 0 %" IRC_DCC_SIZE_T_FORMAT" %lu", &size, &token) == 2) {
+#else
+    else if (sscanf(req, "DCC ACCEPT file.ext 0 %" IRC_DCC_SIZE_T_FORMAT" %lu", &size, &token) == 2) {
+#endif
+        DBG_OK("---- got dcc accept reverse req: %" IRC_DCC_SIZE_T_FORMAT " %lu ---", size, token);
+        irc_dcc_session_t * dcc;
+        dcc = libirc_find_dcc_session_by_token(session, token, 1);
+        if (dcc == NULL) {
+            DBG_WARN("cant find open dcc session with token = %lu!", token);
+            return;
+        }
+        
+        if (dcc->state != LIBIRC_STATE_WAITING_FOR_RESUME_ACK) {
+            DBG_WARN("dcc->state != LIBIRC_STATE_WAITING_FOR_RESUME_ACK");
+            return;
+        }
+
+        dcc->state = LIBIRC_STATE_INIT;
+
+        dcc->file_confirm_offset = size;
+
+        libirc_mutex_unlock(&session->mutex_dcc);
+
+        (*dcc->reverse_cb) (session, dcc->id, 1, dcc->ctx, NULL, size, result->nick, "file.ext", token);
+        return;
+    }
+#ifdef _MSC_VER
     else if (sscanf_s(req, "DCC ACCEPT file.ext %hu %" IRC_DCC_SIZE_T_FORMAT, &port, &size) == 2) {
 #else
     else if (sscanf(req, "DCC ACCEPT file.ext %hu %" IRC_DCC_SIZE_T_FORMAT, &port, &size) == 2) {
@@ -635,7 +743,7 @@ static void libirc_dcc_request(irc_session_t * session, irc_parser_result_t *res
             return;
         }
 
-        dcc->state = LIBIRC_STATE_INIT;
+        dcc->state = LIBIRC_STATE_INIT_PASSIVE;
 
         dcc->file_confirm_offset = size;
 
@@ -710,6 +818,74 @@ int irc_dcc_accept(irc_session_t * session, irc_dcc_t dccid, void * ctx, irc_dcc
         dcc->state = LIBIRC_STATE_CONNECTED;
     }
 #endif
+    libirc_mutex_unlock(&session->mutex_dcc);
+    return 0;
+}
+
+
+int irc_dcc_resume_reverse(irc_session_t * session, irc_dcc_t dccid, void * ctx, irc_dcc_reverse_callback_t callback, const char * nick, const char *filename, irc_dcc_size_t filePosition, unsigned long token) {
+    irc_dcc_session_t * dcc = libirc_find_dcc_session(session, dccid, 1);
+
+    if (!dcc)
+        return 1;
+
+    if (dcc->state != LIBIRC_STATE_INIT) {
+        session->lasterror = LIBIRC_ERR_STATE;
+        libirc_mutex_unlock(&session->mutex_dcc);
+        return 1;
+    }
+    
+    dcc->reverse_cb = callback;
+    dcc->ctx = ctx;
+
+    char buf[512];
+    snprintf(buf, sizeof(buf), "DCC RESUME file.ext 0 %" IRC_DCC_SIZE_T_FORMAT " %lu", filePosition, token);
+    DBG_OK("%s", buf);
+    irc_cmd_ctcp_request(session, nick, buf);
+    dcc->state = LIBIRC_STATE_WAITING_FOR_RESUME_ACK;
+    libirc_mutex_unlock(&session->mutex_dcc);
+    return 0;
+}
+
+int irc_dcc_accept_reverse(irc_session_t * session, irc_dcc_t dccid, void * ctx, irc_dcc_callback_t callback, const char * nick, const char *filename, irc_dcc_size_t size, unsigned long token) {
+    irc_dcc_session_t * dcc = libirc_find_dcc_session(session, dccid, 1);
+
+    if (!dcc)
+        return 1;
+
+    if (dcc->state != LIBIRC_STATE_INIT) {
+        session->lasterror = LIBIRC_ERR_STATE;
+        libirc_mutex_unlock(&session->mutex_dcc);
+        return 1;
+    }
+    
+    struct xdccGetConfig *cfg = getCfg();
+    sds listen_ip = getListenIp(cfg);
+    uint16_t listen_port = getListenPort(cfg);
+    char buf[4096];
+
+    struct in_addr addr_buf;
+    memset(&addr_buf, 0, sizeof(addr_buf));
+
+    if (inet_pton(AF_INET, listen_ip, &addr_buf) == 0) {
+        DBG_ERR("inet_pton %s", strerror(errno));
+        session->lasterror = LIBIRC_LISTEN_IP_INVALID;
+        return 1;
+    }
+    
+    if (strchr (filename, ' ')) {
+      snprintf(buf, sizeof(buf), "DCC SEND \"%s\" %u %u %" IRC_DCC_SIZE_T_FORMAT " %lu", filename, ntohl(addr_buf.s_addr), listen_port, size, token);
+    } else {
+      snprintf(buf, sizeof(buf), "DCC SEND %s %u %u %" IRC_DCC_SIZE_T_FORMAT " %lu", filename, ntohl(addr_buf.s_addr), listen_port, size, token);
+    }
+    
+    DBG_OK("%s", buf);
+    irc_cmd_ctcp_request(session, nick, buf);
+
+    dcc->state = LIBIRC_STATE_INIT_PASSIVE;
+
+    dcc->cb = callback;
+    dcc->ctx = ctx;
     libirc_mutex_unlock(&session->mutex_dcc);
     return 0;
 }

@@ -112,12 +112,18 @@ do {\
 typedef unsigned int sleeptime_t;
 #define NO_SPEED_LIMIT 0
 
+struct xdccSendDelay {
+    time_t sendDelayInSecs;
+    time_t timeToSendCommand;
+};
+
 struct xdccGetConfig {
     irc_session_t *session;
     uint32_t logLevel;
     struct dccDownload **dccDownloadArray;
     uint32_t numDownloads;
     irc_dcc_size_t maxTransferSpeed;
+    struct xdccSendDelay* sendDelay;
     bitset_t flags;
     
     char *ircServer;
@@ -125,6 +131,8 @@ struct xdccGetConfig {
     sds targetDir;
     sds nick;
     sds login_command;
+    sds listen_ip;
+    uint16_t listen_port;
     char *args[3];
     
     uint32_t numChannels;
@@ -217,14 +225,8 @@ static inline sds getConfigDirectory() {
     return configDir;
 }
 
-/* inits the rand-function */
-void initRand();
-
 /* reads in the complete content of an text file and returns sds string. string need to be freed with sdsfree*/
 sds readTextFile (char *filePath);
-
-/* range-based rand. the returned number will be at least low, but lower than high. */
-int rand_range(int low, int high);
 
 /* create a random nickname (e.g. a string) of nicklen chars. result is stored at nick.
    function does not malloc, so calling function has to reserve enough space at nick. */
@@ -242,8 +244,26 @@ void outputProgress(struct dccDownloadProgress *tdp);
 
 void setMaxTransferSpeed(struct xdccGetConfig *config, sds value);
 
+static inline sds getListenIp(struct xdccGetConfig *config) {
+    if (config->listen_ip) {
+        return config->listen_ip;
+    } else {
+        return sdsnew("127.0.0.1");
+    }
+}
+
+static inline uint16_t getListenPort(struct xdccGetConfig *config) {
+    if (config->listen_port) {
+        return config->listen_port;
+    } else {
+        return 0;
+    }
+}
+
 #ifdef ENABLE_SSL
 int openssl_check_certificate_callback(int preverify_ok, X509_STORE_CTX *ctx);
 #endif
+
+void setDelay(struct xdccGetConfig* config, sds value);
 
 #endif

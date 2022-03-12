@@ -3,12 +3,21 @@
 #include "file.h"
 #include "helper.h"
 
+#ifndef _MSC_VER
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#else
+#include <winsock.h>
+#endif
+
 static void downloadDirCallback(struct xdccGetConfig *config, sds value);
 static void parseLogLevel(struct xdccGetConfig *config, sds value);
 static void allowAllCertsCallback(struct xdccGetConfig *config, sds value);
 static void verifyChecksumsCallback (struct xdccGetConfig *config, sds value);
 static void confirmFileOffsetsCallback (struct xdccGetConfig *config, sds value);
 static void maxTransferSpeedCallback (struct xdccGetConfig *config, sds value);
+static void listenIpCallback (struct xdccGetConfig *config, sds value);
+static void listenPortCallback (struct xdccGetConfig *config, sds value);
 
 typedef void (*ConfigLineParserFunction) (struct xdccGetConfig *config, sds value);
 
@@ -24,6 +33,8 @@ static struct ConfigLineParser configLineCallbacks[] = {
     {"verifyChecksums", verifyChecksumsCallback},
     {"confirmFileOffsets", confirmFileOffsetsCallback},
     {"maxTransferSpeed", maxTransferSpeedCallback},
+    {"listenIp", listenIpCallback},
+    {"listenPort", listenPortCallback},
 };
 
 static void verifyChecksumsCallback (struct xdccGetConfig *config, sds value) {
@@ -62,6 +73,23 @@ static void maxTransferSpeedCallback (struct xdccGetConfig *config, sds value) {
      setMaxTransferSpeed(config, value);
 }
 
+static void listenIpCallback (struct xdccGetConfig *config, sds value) {
+    struct in_addr addr_buf;
+    
+    memset(&addr_buf, 0, sizeof(addr_buf));
+
+    if (inet_pton(AF_INET, value, &addr_buf) == 0) {
+        logprintf(LOG_ERR, "the listen ip %s in config file is not valid ipv4 address.", value);
+        exitPgm(-1);
+    }
+    
+    config->listen_ip = sdsdup(value);
+}
+
+static void listenPortCallback (struct xdccGetConfig *config, sds value) {
+    config->listen_port = (unsigned short)strtoul(value, NULL, 0);
+}
+
 static void parseLogLevel(struct xdccGetConfig *config, sds logLevel) {
     if (str_equals(logLevel, "information")) {
         config->logLevel = LOG_INFO;
@@ -93,6 +121,10 @@ static sds getDefaultConfigContent() {
     content = sdscatprintf(content, "confirmFileOffsets=false\n");
     content = sdscatprintf(content, "# Limit the maximum transfer speed for the downloads in each xdccget instance to the specified value per seconds. valid suffixes are KByte, MByte and TByte\n");
     content = sdscatprintf(content, "#maxTransferSpeed=1MByte\n");
+    content = sdscatprintf(content, "# Sets the listen ip for passive dcc transfers. Should normally your external ip address.\n");
+    content = sdscatprintf(content, "#listenIp=85.48.89.195\n");
+    content = sdscatprintf(content, "# Sets the listen port for passive dcc transfers. This port needs to be forwared in your router, such that external TCP acknowledgements are not blocked.\n");
+    content = sdscatprintf(content, "#listenPort=55554\n");
     
     sdsfree(downloadDir);
 

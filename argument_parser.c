@@ -3,12 +3,14 @@
 #ifndef _MSC_VER
 #include <argp.h>
 #include <strings.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #else
 #include "getopt.h"
 #endif
 
 #include "helper.h"
-#include "argument_parser.h"
+#include "config.h"
 #include "os_specific.h"
 
 const char *argp_program_version = "xdccget 1.0";
@@ -24,6 +26,9 @@ static char args_doc[] = "<server> <channel(s)> <bot cmds>";
 #define OPT_ACCEPT_ALL_NICKS 1
 #define OPT_DONT_CONFIRM_OFFSETS 2
 #define OPT_THROTTLE_DOWNLOAD 3
+#define OPT_DELAY_COMMAND 4
+#define OPT_LISTEN_IP_COMMAND 5
+#define OPT_LISTEN_PORT_COMMAND 6
 
 static void set_quiet_loglevel(struct xdccGetConfig* cfg) {
     DBG_OK("setting log-level as quiet.");
@@ -83,6 +88,33 @@ static void set_throttle_download(struct xdccGetConfig* cfg, char* arg) {
     sdsfree(val);
 }
 
+static void set_delay_command(struct xdccGetConfig* cfg, char* arg) {
+    sds val = sdsnew(arg);
+    val = sdstrim(val, " \t");
+    setDelay(cfg, val);
+    sdsfree(val);
+}
+
+static void set_listen_ip(struct xdccGetConfig* cfg, char* arg) {
+    struct in_addr addr_buf;
+    
+    memset(&addr_buf, 0, sizeof(addr_buf));
+
+    if (inet_pton(AF_INET, arg, &addr_buf) == 0) {
+        logprintf(LOG_ERR, "the listen ip %s is not valid ipv4 address.", arg);
+        exitPgm(-1);
+    }
+    
+    sds val = sdsnew(arg);
+    val = sdstrim(val, " \t");
+    cfg->listen_ip = val;
+}
+
+
+static void set_listen_port(struct xdccGetConfig* cfg, char* arg) {
+    cfg->listen_port = (unsigned short)strtoul(arg, NULL, 0);
+}
+
 static void set_use_ipv4(struct xdccGetConfig* cfg) {
     DBG_OK("using ipv4 only now");
     cfg_set_bit(cfg, USE_IPV4_FLAG);
@@ -112,6 +144,9 @@ static struct argp_option options[] = {
 {"accept-all-nicks",   OPT_ACCEPT_ALL_NICKS, 0,      0,  "Accept DCC send requests from ALL bots and do not verify any nicknames of incoming dcc requests.", 0 },
 {"dont-confirm-offsets",   OPT_DONT_CONFIRM_OFFSETS, 0,      0,  "Do not send file offsets to the bots. Can be used on bots where the transfer gets stucked after a short while.", 0 },
 {"throttle",  OPT_THROTTLE_DOWNLOAD, "<speed>",      0,  "Limit the maximum transfer speed for the downloads in each xdccget instance to the specified value per seconds. valid suffixes are KByte, MByte and TByte - e.g. 1Mbyte throttles the speed to 1MByte/s.", 0 },
+{"delay", OPT_DELAY_COMMAND, "<time in seconds>",      0,  "Delay the sending of the xdcc send ccommand to specified seconds.", 0 },
+{"listen-ip", OPT_LISTEN_IP_COMMAND, "<ipv4 address>",      0,  "When using passive dcc use this listen ip address (normally your external ip address).", 0 },
+{"listen-port", OPT_LISTEN_PORT_COMMAND, "<port number>",      0,  "When using passive dcc use this listen port (needs to enabled in your router).", 0 },
 { 0 }
 };
 
@@ -168,6 +203,15 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state) {
     case OPT_THROTTLE_DOWNLOAD:
         set_throttle_download(cfg, arg);
         break;
+    case OPT_DELAY_COMMAND:
+        set_delay_command(cfg, arg); 
+        break;
+    case OPT_LISTEN_IP_COMMAND:
+        set_listen_ip(cfg, arg);
+        break;
+    case OPT_LISTEN_PORT_COMMAND:
+        set_listen_port(cfg, arg);
+        break;
     case '4':
         set_use_ipv4(cfg);
         break;
@@ -218,6 +262,9 @@ static struct option long_options[] = {
         {"accept-all-nicks",  no_argument, NULL, 0},
         {"dont-confirm-offsets",  no_argument, NULL, 0},
         {"throttle",  required_argument, NULL, 0},
+        {"delay",  required_argument, NULL, 0},
+        {"listen-ip",  required_argument, NULL, 0},
+        {"listen-port",  required_argument, NULL, 0},
         {NULL,      0,                 NULL, 0}
 };
 
@@ -234,6 +281,15 @@ static void eval_long_option(struct xdccGetConfig* cfg, char* option_name, char*
     }
     else if (strcmp(option_name, "throttle") == 0) {
         set_throttle_download(cfg, optarg);
+    }
+    else if (strcmp(option_name, "delay") == 0) {
+        set_delay_command(cfg, optarg);
+    }
+    else if (strcmp(option_name, "listen-ip") == 0) {
+        set_listen_ip(cfg, optarg);
+    }
+    else if (strcmp(option_name, "listen-port") == 0) {
+        set_listen_port(cfg, optarg);
     }
     else {
         DBG_ERR("invalid argument selection %s", option_name);
@@ -356,6 +412,7 @@ struct dccDownload* newDccDownload(sds botNick, sds xdccCmd) {
     struct dccDownload *t = (struct dccDownload*) Malloc(sizeof (struct dccDownload));
     t->botNick = botNick;
     t->xdccCmd = xdccCmd;
+    t->md5 = NULL;
     return t;
 }
 

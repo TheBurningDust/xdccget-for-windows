@@ -6,6 +6,11 @@
 #include <windows.h>
 #include <VersionHelpers.h>
 #include <Shlobj.h>
+#include <bcrypt.h>
+#pragma comment(lib, "bcrypt.lib")
+#ifndef STATUS_SUCCESS
+#define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
+#endif
 
 static HANDLE gDoneEvent = NULL;
 static HANDLE hTimer = NULL;
@@ -156,3 +161,23 @@ void enableAnsiColorCodes() {
 bool shouldColorOutput() {
     return useColoredConsole;
 }
+
+long int rand_range(long int low, long int high) {
+    long int randomNumber = 0;
+    if (high == 0) {
+        return 0;
+    }
+
+    if (BCryptGenRandom(NULL, &randomNumber, sizeof(randomNumber), BCRYPT_USE_SYSTEM_PREFERRED_RNG) != STATUS_SUCCESS) {
+        logprintf(LOG_ERR, "could not get rand seed from BCryptGenRandom!");
+        exitPgm(EXIT_FAILURE);
+    }
+
+    if (randomNumber < 0) {
+        randomNumber *= -1;
+    }
+
+    return (randomNumber % high + low);
+}
+
+void initRand() {}

@@ -3,6 +3,11 @@
 #include <pwd.h>
 #include <sys/types.h>
 #include <pthread.h>
+#ifdef __GETRANDOM_DEFINED__
+ #include <sys/random.h>
+#else
+ #include <time.h>
+#endif
 
 #include "os_specific.h"
 #include "helper.h"
@@ -73,6 +78,39 @@ void createAlarmHandler(void (*handler) (int)) {
 
 void enableAlarm(int seconds) {
     alarm(seconds);
+}
+
+static unsigned int getRandomSeed() {
+    unsigned int seed = 0;
+#ifdef __GETRANDOM_DEFINED__
+    ssize_t ret = getrandom(&seed, sizeof(seed), 0);
+    
+    if (ret != sizeof(seed)) {
+        logprintf(LOG_ERR, "could not get rand seed from getrandom!");
+        exitPgm(EXIT_FAILURE);
+    }
+#else
+    time_t t = time(NULL);
+	
+    if (t == ((time_t) -1)) {
+        DBG_ERR("time failed");
+    }
+    seed = (unsigned int) t;
+#endif
+    
+    return seed;
+}
+
+long int rand_range(long int low, long int high) {
+    if (high == 0) {
+        return 0;
+    }
+    return (random() % high + low);
+}
+
+void initRand() {
+    unsigned int seed = getRandomSeed();
+    srandom(seed);
 }
 
 void startChecksumThread(sds md5ChecksumSDS, sds completePath) {

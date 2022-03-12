@@ -1,6 +1,8 @@
+
 #include <sys/types.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <inttypes.h>
 #include <ctype.h>
@@ -40,58 +42,48 @@ static inline void logprintf_line (FILE *stream, char *color_code, char *prefix,
     }
 }
 
-void logprintf(int logLevel, char *formatString, ...) {
+void logprintf(int logLevel, char* formatString, ...) {
     va_list va_alist;
-    struct xdccGetConfig *cfg = getCfg();
+    struct xdccGetConfig* cfg = getCfg();
 
-   if (cfg->logLevel == LOG_QUIET) {
-      return;
-   }
-    
+    if (cfg->logLevel == LOG_QUIET) {
+        return;
+    }
+
     va_start(va_alist, formatString);
 
     switch (logLevel) {
-        case LOG_INFO:
-            if (cfg->logLevel >= LOG_INFO) {
-                logprintf_line(stdout, KGRN, "Info", formatString, va_alist);
-            }
-            break;
-        case LOG_WARN:
-            if (cfg->logLevel >= LOG_WARN) {
+    case LOG_INFO:
+        if (cfg->logLevel >= LOG_INFO) {
+            logprintf_line(stdout, KGRN, "Info", formatString, va_alist);
+        }
+        break;
+    case LOG_WARN:
+        if (cfg->logLevel >= LOG_WARN) {
 #ifdef _MSC_VER
-                logprintf_line(stdout, KYEL, "Warning", formatString, va_alist);
+            logprintf_line(stdout, KYEL, "Warning", formatString, va_alist);
 #else
-                logprintf_line(stderr, KYEL, "Warning", formatString, va_alist);
+            logprintf_line(stderr, KYEL, "Warning", formatString, va_alist);
 #endif
-            }
-            break;
-        case LOG_ERR:
-            if (cfg->logLevel >= LOG_ERR) {
+        }
+        break;
+    case LOG_ERR:
+        if (cfg->logLevel >= LOG_ERR) {
 #ifdef _MSC_VER
-                logprintf_line(stdout, KRED, "Error", formatString, va_alist);
+            logprintf_line(stdout, KRED, "Error", formatString, va_alist);
 #else
-                logprintf_line(stderr, KRED, "Error", formatString, va_alist);
+            logprintf_line(stderr, KRED, "Error", formatString, va_alist);
 #endif
-            }
-            break;
-        default:
-            DBG_WARN("logprintf called with unknown log-level. using normal logging.");
-            vfprintf(stdout, formatString, va_alist);
-            fprintf(stdout, "\n");
-            break;
+        }
+        break;
+    default:
+        DBG_WARN("logprintf called with unknown log-level. using normal logging.");
+        vfprintf(stdout, formatString, va_alist);
+        fprintf(stdout, "\n");
+        break;
     }
 
     va_end(va_alist);
-}
-
-void initRand() {
-    time_t t = time(NULL);
-	
-    if (t == ((time_t) -1)) {
-        DBG_ERR("time failed");
-    }
-	
-    srand((unsigned int) t);
 }
 
 struct TextReaderContext {
@@ -112,13 +104,6 @@ sds readTextFile(char *filePath) {
     readFile(filePath, TextReaderCallback, &context);
 
     return context.content;
-}
-
-int rand_range(int low, int high) {
-    if (high == 0) {
-        return 0;
-    }
-    return (rand() % high + low);
 }
 
 void createRandomNick(int nickLen, char *nick) {
@@ -363,6 +348,22 @@ void setMaxTransferSpeed(struct xdccGetConfig *config, sds value) {
     } else {
          config->maxTransferSpeed = NO_SPEED_LIMIT;
     }
+}
+
+void setDelay(struct xdccGetConfig* config, sds value) {
+    unsigned long val = 0;
+
+#ifdef _MSC_VER
+    sscanf_s(value, "%lu", &val);
+#else
+    sscanf(value, "%lu", &val);
+#endif
+
+    DBG_OK("setting delay to %lu", val);
+
+    config->sendDelay = Calloc(1, sizeof(struct xdccSendDelay));
+    config->sendDelay->sendDelayInSecs = val;
+    config->sendDelay->timeToSendCommand = time(NULL) + val;
 }
 
 #ifdef ENABLE_SSL

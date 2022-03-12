@@ -227,9 +227,14 @@
  */
 #define LIBIRC_ERR_SSL_CERT_VERIFY_FAILED	20
 
+#define LIBIRC_BIND_FAILED 21
+
+#define LIBIRC_LISTEN_FAILED 22
+
+#define LIBIRC_LISTEN_IP_INVALID 23
 
 // Internal max error value count.
 // If you added more errors, add them to errors.c too!
-#define LIBIRC_ERR_MAX			21
+#define LIBIRC_ERR_MAX			24
 
 #endif /* INCLUDE_IRC_ERRORS_H */

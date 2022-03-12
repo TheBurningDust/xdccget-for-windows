@@ -3,11 +3,6 @@ This is a project that allows you to download files from IRC with XDCC with an e
 like wget or curl. It supports at the moment Linux, Windows (with cygwin) and BSD-variants. Also OSX with some installed
 ports works.
 
-*Note*: This is an version of xdccget that runs on Windows 7/8 and 10 natively without the need for cygwin dlls. You can 
-compile it for yourself with the free Visual Studio 2019 Community edition or you can just download it [here](https://github.com/TheBurningDust/xdccget-for-windows/releases/tag/1.00) from Github as a precompiled
-binary executable for Windows x64 cpu architecture. You can just run the exe file, the openssl depencency is linked statically. Please
-read the docs below for more infos on the program itself.
-
 ## Quick facts
 * it is free software licenced under the GPL
 * minimal usage of cpu and memory
@@ -15,6 +10,7 @@ read the docs below for more infos on the program itself.
 * support for IPv4 and IPv6 connections
 * can be configured with configuration-file
 * supports connection with and without SSL/TLS
+* connection to passive bots are supported (you need to set the listen-ip and listen-port in this case, see comments below for more details)
 * bots with support for ssend-command are supported
 
 ## Using xdccget
@@ -61,6 +57,14 @@ You can also join multiple channels, so if you also have to join #best-chat-chan
 ``` 
 xdccget -i "irc.sampel.net" "#best-channel, #best-chat-channel" "super-duper-bot xdcc send #34"
 ``` 
+
+If the bot only supports the passive dcc mode, then you have to supply the listen ip (normally your public ip address) and the listen port (normally needs to be forwarded in your router). You can set the listen ip and port in the config file globally or you can set it with an command line argument. this is an example, where the public ip address is 2.2.2.2 and the port is 44444. the delay option in this command delays the sending of the send command by 70 seconds  and can be used, where you need to stay a certain amount of time in a channel.
+
+``` 
+xdccget -i --listen-ip=2.2.2.2 --listen-port=44444 --delay=70 "irc.sampel.net" "#best-channel" "super-duper-bot xdcc send #34"
+``` 
+
+If this does not work for you, please make sure, that the port is not blocked in your router and in your firewall. Normally all incoming connections are blocked, therefore you have to manually enable your chosen port.
 
 This is the basic usage of xdccget. You can call xdccget --help to understand all currently supported arguments.
 xdccget also uses a config file, which will be placed at your homefolder in .xdccget/config. You can modify

@@ -133,6 +133,7 @@ typedef uint64_t irc_dcc_size_t;
  * \ingroup dccstuff
  */
 typedef void (*irc_dcc_callback_t) (irc_session_t * session, irc_dcc_t id, int status, void * ctx, const char * data, irc_dcc_size_t length);
+typedef void (*irc_dcc_reverse_callback_t) (irc_session_t * session, irc_dcc_t dccid, int status, void * ctx, const char * data, irc_dcc_size_t length, const char * nick, const char *filename, unsigned long token);
 
 #define IN_INCLUDE_LIBIRC_H
 #include "libirc_errors.h"
@@ -1191,7 +1192,11 @@ int irc_dcc_msg	(irc_session_t * session, irc_dcc_t dccid, const char * text);
  */
 int	irc_dcc_accept (irc_session_t * session, irc_dcc_t dccid, void * ctx, irc_dcc_callback_t callback);
 
+int irc_dcc_accept_reverse(irc_session_t * session, irc_dcc_t dccid, void * ctx, irc_dcc_callback_t callback, const char * nick, const char *filename, irc_dcc_size_t size, unsigned long token);
+
 int	irc_dcc_resume (irc_session_t * session, irc_dcc_t dccid, void * ctx, irc_dcc_callback_t callback, const char *nick, irc_dcc_size_t filePosition);
+
+int irc_dcc_resume_reverse(irc_session_t * session, irc_dcc_t dccid, void * ctx, irc_dcc_reverse_callback_t callback, const char * nick, const char *filename, irc_dcc_size_t filePosition, unsigned long token);
 
 /*!
  * \fn int irc_dcc_decline (irc_session_t * session, irc_dcc_t dccid)

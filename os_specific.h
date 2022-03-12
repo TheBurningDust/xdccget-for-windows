@@ -11,6 +11,7 @@
 
 #ifdef _MSC_VER
 #define strcasecmp _stricmp
+#define strdup(p) _strdup(p)
 #endif
 
 const char* getPathSeperator();
@@ -20,8 +21,12 @@ void createInterruptHandler(void (*handler) (int));
 void createAlarmHandler(void (*handler) (int));
 void enableAlarm(int seconds);
 
+
 void startChecksumThread(sds md5ChecksumSDS, sds completePath);
 void enableAnsiColorCodes();
 bool shouldColorOutput();
+
+void initRand();
+long int rand_range(long int low, long int high);
 
 #endif

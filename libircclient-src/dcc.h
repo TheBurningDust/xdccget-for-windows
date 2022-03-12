@@ -22,6 +22,8 @@ struct irc_dcc_session_s {
     irc_dcc_session_t * next;
 
     irc_dcc_t id;
+    bool passive_connection;
+    unsigned long token;
     void * ctx;
     socket_t sock; /*!< DCC socket */
 
@@ -45,6 +47,7 @@ struct irc_dcc_session_s {
     port_mutex_t mutex_outbuf;
 
     irc_dcc_callback_t cb;
+    irc_dcc_reverse_callback_t reverse_cb;
 };
 
 

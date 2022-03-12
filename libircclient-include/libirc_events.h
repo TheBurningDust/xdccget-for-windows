@@ -71,6 +71,8 @@ typedef void (*irc_event_dcc_chat_t) (irc_session_t * session, const char * nick
  */
 typedef void (*irc_event_dcc_send_t) (irc_session_t * session, const char * nick, const char * addr, const char * filename, irc_dcc_size_t size, irc_dcc_t dccid);
 
+typedef void (*irc_event_dcc_send_reverse_t) (irc_session_t * session, const char * nick, const char * addr, const char * filename, irc_dcc_size_t size, irc_dcc_t dccid, unsigned long token);
+
 typedef bool (*irc_event_dcc_verify_incoming_dcc_request_t) (irc_session_t * session, const char * nick);
 
 
@@ -325,6 +327,8 @@ typedef struct
      * See the params in ::irc_event_dcc_send_t specification.
 	 */
 	irc_event_dcc_send_t		event_dcc_send_req;
+	
+	irc_event_dcc_send_reverse_t event_dcc_send_req_reverse;
 	
 	irc_event_dcc_verify_incoming_dcc_request_t verify_incoming_dcc_requests_req;
         
