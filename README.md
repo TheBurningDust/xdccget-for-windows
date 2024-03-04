@@ -4,7 +4,7 @@ like wget or curl. It supports at the moment Linux, Windows (with cygwin) and BS
 ports works.
 
 *Note*: This is an version of xdccget that runs on Windows 7/8 and 10 natively without the need for cygwin dlls. You can 
-compile it for yourself with the free Visual Studio 2019 Community edition or you can just download it [here](https://github.com/TheBurningDust/xdccget-for-windows/releases/tag/1.1) from Github as a precompiled
+compile it for yourself with the free Visual Studio 2019 Community edition or you can just download it [here](https://github.com/TheBurningDust/xdccget-for-windows/releases/tag/1.2) from Github as a precompiled
 binary executable for Windows x64 cpu architecture. You can just run the exe file, the openssl depencency is linked statically. Please
 read the docs below for more infos on the program itself.
 
