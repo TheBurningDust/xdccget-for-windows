@@ -1,6 +1,6 @@
 #include "os_specific.h"
-
 #include "helper.h"
+#include "hashing_algo.h"
 
 #include <stdbool.h>
 #include <windows.h>
@@ -67,11 +67,24 @@ static VOID CALLBACK TimerRoutine(PVOID lpParam, BOOLEAN TimerOrWaitFired)
 static void create_timer_queue_timer(int seconds) {
     int arg = 123;
     // Set a timer to call the timer routine in 1 seconds.
-    if (!CreateTimerQueueTimer(&hTimer, hTimerQueue,
-        (WAITORTIMERCALLBACK)TimerRoutine, &arg, seconds*1000, 0, 0))
-    {
-        logprintf(LOG_ERR, "CreateTimerQueueTimer failed (%d)\n", GetLastError());
-        exitPgm(EXIT_FAILURE);
+    
+    if (seconds > 0) {
+        if (!CreateTimerQueueTimer(&hTimer, hTimerQueue,
+            (WAITORTIMERCALLBACK)TimerRoutine, &arg, seconds * 1000, 0, 0))
+        {
+            logprintf(LOG_ERR, "CreateTimerQueueTimer failed (%d)\n", GetLastError());
+            exitPgm(EXIT_FAILURE);
+        }
+    }
+    else if (seconds == 0) {
+        if (!DeleteTimerQueueTimer(hTimerQueue, hTimer, NULL)) {  
+            logprintf(LOG_ERR, "DeleteTimerQueueTimer failed (%d)\n", GetLastError());
+            exitPgm(EXIT_FAILURE);
+        }
+        if (!DeleteTimerQueueEx(hTimerQueue, NULL)) {
+            logprintf(LOG_ERR, "DeleteTimerQueueEx failed (%d)\n", GetLastError());
+            exitPgm(EXIT_FAILURE);
+        }
     }
 }
 
@@ -104,11 +117,54 @@ void enableAlarm(int seconds) {
     create_timer_queue_timer(seconds);
 }
 
-void startChecksumThread(sds md5ChecksumSDS, sds completePath) {
-    // TODO: implement checksum thread for windows environment...
+DWORD WINAPI MyThreadFunction(LPVOID lpParam)
+{
+    struct checksumThreadData* data = lpParam;
+    sds md5ChecksumString = data->expectedHash;
 
-    sdsfree(md5ChecksumSDS);
-    sdsfree(completePath);
+    logprintf(LOG_INFO, "Verifying md5-checksum '%s'!", md5ChecksumString);
+
+    HashAlgorithm* md5algo = createHashAlgorithm("MD5");
+    uchar hashFromFile[16];
+
+    getHashFromFile(md5algo, data->completePath, hashFromFile);
+    uchar* expectedHash = convertHashStringToBinary(md5algo, md5ChecksumString);
+
+    if (md5algo->equals(expectedHash, hashFromFile)) {
+        logprintf(LOG_INFO, "Checksum-Verification succeeded!");
+    }
+    else {
+        logprintf(LOG_WARN, "Checksum-Verification failed!");
+    }
+
+    FREE(expectedHash);
+    freeHashAlgo(md5algo);
+    sdsfree(data->expectedHash);
+    sdsfree(data->completePath);
+    FREE(data);
+
+    return 0;
+}
+
+
+void startChecksumThread(sds md5ChecksumSDS, sds completePath) {
+    struct checksumThreadData* threadData = Malloc(sizeof(struct checksumThreadData));
+    threadData->completePath = completePath;
+    threadData->expectedHash = md5ChecksumSDS;
+    DWORD   dwThreadId;
+
+    HANDLE hThread = CreateThread(
+        NULL,                   // default security attributes
+        0,                      // use default stack size  
+        MyThreadFunction,       // thread function name
+        threadData,          // argument to thread function 
+        0,                      // use default creation flags 
+        &dwThreadId);   // returns the thread identifier 
+
+    if (hThread == NULL) {
+        logprintf(LOG_ERR, "could not create thread for checksum verification!");
+        exitPgm(EXIT_FAILURE);
+    }
 }
 
 static double getWindowsVersion()

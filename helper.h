@@ -51,6 +51,7 @@
 #ifdef DEBUG
 #ifdef _MSC_VER
 	#define DBG_MSG(color, stream, format, ...) do {\
+            fprintf(stream, "%sDBG:%s \"", color, KNRM);\
 		    fprintf(stream, format, ##__VA_ARGS__);\
 		    fprintf(stream, "\" function: %s file: %s line: %d\n",(char*) __func__, (char*)__FILE__, __LINE__); fflush(stdout);} while(0)
 	
@@ -147,6 +148,7 @@ struct xdccGetConfig {
 #define SENDED_FLAG               0x06
 #define ACCEPT_ALL_NICKS_FLAG     0x07
 #define DONT_CONFIRM_OFFSETS_FLAG 0x08
+#define ON_CONNECT_EVENT_DONE     0x09
 
 
 struct terminalDimension {
@@ -164,29 +166,29 @@ struct dccDownloadContext {
     struct file_io_t *fd;
 };
 
-inline void clear_bit(bitset_t* x, int bitNum) {
+static inline void clear_bit(bitset_t* x, int bitNum) {
     *x &= ~((bitset_t) 1 << bitNum);
 }
 
-inline void set_bit(bitset_t* x, int bitNum) {
+static inline void set_bit(bitset_t* x, int bitNum) {
     *x |= ((bitset_t) 1 << (bitset_t) bitNum);
 }
 
-inline int get_bit(bitset_t* x, int bitNum) {
+static inline int get_bit(bitset_t* x, int bitNum) {
     int bit = 0;
     bit = (*x >> bitNum) & 1L;
     return bit;
 }
 
-inline void cfg_clear_bit(struct xdccGetConfig* config, int bitNum) {
+static inline void cfg_clear_bit(struct xdccGetConfig* config, int bitNum) {
     clear_bit(&config->flags, bitNum);
 }
 
-inline void cfg_set_bit(struct xdccGetConfig* config, int bitNum) {
+static inline void cfg_set_bit(struct xdccGetConfig* config, int bitNum) {
     set_bit(&config->flags, bitNum);
 }
 
-inline int cfg_get_bit(struct xdccGetConfig* config, int bitNum) {
+static inline int cfg_get_bit(struct xdccGetConfig* config, int bitNum) {
     return get_bit(&config->flags, bitNum);
 }
 
@@ -243,6 +245,18 @@ irc_dcc_size_t getSizeOf(unsigned int value, char *size);
 void outputProgress(struct dccDownloadProgress *tdp);
 
 void setMaxTransferSpeed(struct xdccGetConfig *config, sds value);
+
+static inline bool ends_with(const char* str, const char* suffix) {
+    if (!str || !suffix) return false;
+    size_t len_str = strlen(str);
+    size_t len_suf = strlen(suffix);
+    if (len_suf > len_str) return false;
+    return strcmp(str + (len_str - len_suf), suffix) == 0;
+}
+
+static inline sds get_custom_local_certs_folder() {
+    return sdscatprintf(sdsempty(), "%s%s%s%s%s", getHomeDir(), getPathSeperator(), ".xdccget", getPathSeperator(), "local-trusted-certs");
+}
 
 static inline sds getListenIp(struct xdccGetConfig *config) {
     if (config->listen_ip) {

@@ -41,6 +41,8 @@ static struct dccDownloadContext **downloadContext = NULL;
 static struct dccDownloadProgress *lastDownload = NULL;
 static struct dccDownloadProgress *curDownload = NULL;
 
+void on_connect_event(irc_session_t* session);
+
 struct xdccGetConfig *getCfg() {
     return &cfg;
 }
@@ -192,6 +194,23 @@ static void checkMD5ChecksumNotice(const char * event, irc_parser_result_t *resu
     startChecksumThread(md5ChecksumSDS, sdsdup(lastDownload->completePath));
 }
 
+static void check_connected_event(irc_session_t* session, const char* event, irc_parser_result_t* result) {
+    if (!str_equals(event, "NOTICE")) {
+        return;
+    }
+
+    if (result->num_params != 2) {
+        return;
+    }
+
+    const char *event_string = result->params[1];
+
+    char *found = strstr(event_string, "You are connected");
+
+    if (found != NULL) {
+        on_connect_event(session);
+    }
+}
 
 void dump_event (irc_session_t * session, const char * event, irc_parser_result_t *result)
 {
@@ -258,6 +277,7 @@ static inline bool isPasswordAccepted(const char *message) {
 void event_notice(irc_session_t * session, const char * event, irc_parser_result_t *result) {
     dump_event(session, event, result);
     checkMD5ChecksumNotice(event, result);
+    check_connected_event(session, event, result);
 }
 
 void event_mode(irc_session_t * session, const char * event, irc_parser_result_t *result) {
@@ -313,10 +333,11 @@ static void send_login_command(irc_session_t *session) {
     }
 }
 
+void on_connect_event(irc_session_t* session) {
 
-void event_connect (irc_session_t *session, const char * event, irc_parser_result_t *result)
-{
-    dump_event (session, event, result);
+    if (cfg_get_bit(&cfg, ON_CONNECT_EVENT_DONE)) {
+        return;
+    }
 
 #ifdef ENABLE_SSL
     logprintf(LOG_INFO, "using cipher suite: %s", irc_get_ssl_ciphers_used(session));
@@ -328,8 +349,15 @@ void event_connect (irc_session_t *session, const char * event, irc_parser_resul
     else {
         join_channels(session);
     }
+
+    cfg_set_bit(&cfg, ON_CONNECT_EVENT_DONE);
 }
 
+void event_connect (irc_session_t *session, const char * event, irc_parser_result_t *result)
+{
+    dump_event (session, event, result);
+    on_connect_event(session);
+}
 
 void event_privmsg (irc_session_t * session, const char * event, irc_parser_result_t *result)
 {
@@ -346,7 +374,22 @@ void event_numeric (irc_session_t * session, unsigned int event, irc_parser_resu
     char buf[24];
     snprintf (buf, sizeof(buf), "%d", event);
 
-    dump_event (session, buf, result);
+    if (event == 1 && result->num_params >= 2) {
+        dump_event (session, buf, result);
+        char* ipaddr = strrchr(result->params[1], '@');
+        if (ipaddr) {
+            struct hostent* hostAddr = gethostbyname(ipaddr+1);
+
+            if (hostAddr != NULL && !cfg.listen_ip) {
+                logprintf(LOG_INFO, "trying to convert %s", ipaddr);
+                struct in_addr* addr = (struct in_addr*) (hostAddr->h_addr);
+                char *conv = inet_ntoa(*addr);
+
+                cfg.listen_ip = sdsnew(conv);
+                logprintf(LOG_INFO, "using the external ip address %s for passive dcc connections!", conv);
+            }
+        }
+    }
 }
 
 static bool isValidRequestFromNick(irc_session_t *session, const char *botNick) {
@@ -547,13 +590,15 @@ struct dccDownloadContext* prepareRecvFileRequest (irc_session_t *session, const
 
 
 void recvFileRequestReverse (irc_session_t *session, const char *nick, const char *addr, const char *filename, irc_dcc_size_t size, irc_dcc_t dccid, unsigned long token) {
-    struct dccDownloadContext *context = prepareRecvFileRequest(session, nick, addr, filename, size, dccid);
+    irc_dcc_size_t fileSize;
+    int ret = 0;
+    struct dccDownloadContext* context = prepareRecvFileRequest(session, nick, addr, filename, size, dccid);
     sds completePath = getCompletePath(filename);
 
-    if(file_exists (completePath)) {
+    if(file_exists(completePath)) {
         context->fd = Open(completePath, "a");
-
-        off_t fileSize = get_file_size(completePath);
+        fileSize = get_file_size(completePath);
+        DBG_OK("fileSize = %lu", fileSize);
 
         if (size == (irc_dcc_size_t) fileSize) {
             logprintf(LOG_ERR, "file %s is already downloaded, exit pgm now.", completePath);
@@ -566,9 +611,12 @@ void recvFileRequestReverse (irc_session_t *session, const char *nick, const cha
         }
 
         logprintf(LOG_INFO, "file %s already exists, need to resume.\n", completePath);
-        irc_dcc_resume_reverse(session, dccid, context, callback_dcc_resume_file_reverse, nick, filename, fileSize, token);
+        ret = irc_dcc_resume_reverse(session, dccid, context, callback_dcc_resume_file_reverse, nick, filename, fileSize, token);
+        if (ret != 0) {
+            logprintf(LOG_ERR, "Could not connect to bot\nError was: %s\n", irc_strerror(irc_errno(cfg.session)));
+            exitPgm(EXIT_FAILURE);
+        }
     } else {
-        int ret;
         context->fd = Open(completePath, "w");
         logprintf(LOG_INFO, "file %s does not exist. creating file and waiting for connection from bot.", completePath);
 accept_flag_reverse:
@@ -584,14 +632,17 @@ accept_flag_reverse:
 
 void recvFileRequest (irc_session_t *session, const char *nick, const char *addr, const char *filename, irc_dcc_size_t size, irc_dcc_t dccid)
 {
+    irc_dcc_size_t fileSize;
+    int ret = 0;
     struct dccDownloadContext *context = prepareRecvFileRequest(session, nick, addr, filename, size, dccid);
     sds completePath = getCompletePath(filename);
-    if(file_exists (completePath)) {
+
+    if(file_exists(completePath)) {
         context->fd = Open(completePath, "a");
+        fileSize = get_file_size(completePath);
+        DBG_OK("fileSize = %llu", fileSize);
 
-        off_t fileSize = get_file_size(completePath);
-
-        if (size == (irc_dcc_size_t) fileSize) {
+        if (size == fileSize) {
             logprintf(LOG_ERR, "file %s is already downloaded, exit pgm now.", completePath);
             exitPgm(EXIT_FAILURE);
         }
@@ -602,10 +653,13 @@ void recvFileRequest (irc_session_t *session, const char *nick, const char *addr
         }
 
         logprintf(LOG_INFO, "file %s already exists, need to resume.\n", completePath);
-        irc_dcc_resume(session, dccid, context, callback_dcc_resume_file, nick, fileSize);
+        ret = irc_dcc_resume(session, dccid, context, callback_dcc_resume_file, nick, fileSize);
+        if (ret != 0) {
+            logprintf(LOG_ERR, "Could not connect to bot\nError was: %s\n", irc_strerror(irc_errno(cfg.session)));
+            exitPgm(EXIT_FAILURE);
+        }
     }
     else {
-        int ret;
         context->fd = Open(completePath, "w");
         logprintf(LOG_INFO, "file %s does not exist. creating file and downloading it now.", completePath);
 accept_flag:
@@ -707,6 +761,7 @@ void initCallbacks(irc_callbacks_t *callbacks) {
     callbacks->event_notice = event_notice;
     callbacks->event_umode = event_umode;
     callbacks->event_mode = event_mode;
+    callbacks->event_numeric = event_numeric;
     callbacks->keep_alive_callback = print_output_callback;
 }
 

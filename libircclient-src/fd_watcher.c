@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#else
+#include <windows.h>
 #endif
 
 #include "fd_watcher.h"
@@ -87,11 +89,11 @@ static void epoll_free();
 #define FREE_FD_WATCHER() select_free();
 
 static int select_init(int nf);
-static void select_add_fd(int fd);
-static void select_del_fd(int fd);
+static void select_add_fd(socket_t fd);
+static void select_del_fd(socket_t fd);
 static int select_watch(long timeout_msecs);
-static int select_check_fd(int fd, uint8_t rw);
-static void select_set_fd(int fd, uint8_t rw);
+static int select_check_fd(socket_t fd, uint8_t rw);
+static void select_set_fd(socket_t fd, uint8_t rw);
 static void select_zero();
 static void select_free();
 #endif
@@ -152,7 +154,7 @@ void fdwatch_free() {
 }
 
 /* Add a descriptor to the watch list.  rw is either FDW_READ or FDW_WRITE.  */
-void fdwatch_add_fd(int fd)
+void fdwatch_add_fd(socket_t fd)
 {
     if (fd < 0 || fd >= nfiles) {
         logprintf(LOG_ERR, "bad fd (%d) passed to fdwatch_add_fd!", fd);
@@ -163,7 +165,7 @@ void fdwatch_add_fd(int fd)
 }
 
 /* Remove a descriptor from the watch list. */
-void fdwatch_del_fd(int fd)
+void fdwatch_del_fd(socket_t fd)
 {
     if (fd < 0 || fd >= nfiles) {
         logprintf(LOG_ERR, "bad fd (%d) passed to fdwatch_del_fd!", fd);
@@ -174,7 +176,7 @@ void fdwatch_del_fd(int fd)
     fd_rw[fd] = 0;
 }
 
-void fdwatch_set_fd(int fd, uint8_t rw)
+void fdwatch_set_fd(socket_t fd, uint8_t rw)
 {
     if (fd < 0 || fd >= nfiles) {
         logprintf(LOG_ERR, "bad fd (%d) passed to fdwatch_set_fd!", fd);
@@ -199,7 +201,7 @@ int fdwatch(long timeout_msecs)
 }
 
 /* Check if a descriptor was ready. */
-int fdwatch_check_fd(int fd, uint8_t rw)
+int fdwatch_check_fd(socket_t fd, uint8_t rw)
 {
     if (fd < 0 || fd >= nfiles) {
         logprintf(LOG_ERR, "bad fd (%d) passed to fdwatch_check_fd!", fd);

@@ -22,17 +22,15 @@
 #include <arpa/inet.h>	
 #include <netinet/in.h>
 #include <fcntl.h>
-#else
-#include "Ws2tcpip.h"
-#endif
-
-
-#include "../helper.h"
-
 #define IS_SOCKET_ERROR(a)	((a)<0)
 typedef int socket_t;
+#else
+#include "Ws2tcpip.h"
+#define IS_SOCKET_ERROR(a)	((a)==SOCKET_ERROR)
+typedef SOCKET			socket_t;
+#endif
 
-
+#include "../helper.h"
 
 #ifndef INADDR_NONE
 	#define INADDR_NONE 	0xFFFFFFFF
@@ -46,9 +44,11 @@ struct irc_addr_t {
 	struct sockaddr *addr;
 };
 static int socket_error() {
-
+#ifdef _MSC_VER
+    return WSAGetLastError();
+#else
     return errno;
-
+#endif
 }
 
 static int socket_create(int domain, int type, socket_t * sock) {
@@ -96,7 +96,6 @@ static int socket_connect(socket_t * sock, const struct sockaddr *saddr, socklen
         }
         return 0;
     }
-
 }
 
 static int socket_recv(socket_t * sock, void * buf, size_t len) {
@@ -157,7 +156,6 @@ static struct irc_addr_t** resolve_hostname_by_dns(const char *hostname, int *nu
     hints.ai_protocol = IPPROTO_TCP;
 
     ret = getaddrinfo(hostname, NULL, &hints, &result);
-
 
     if (ret != 0) {
         return NULL;

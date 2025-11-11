@@ -161,7 +161,7 @@ static inline bool isConnectionEstablished(const irc_session_t *session) {
 
 static bool hasConnection(const irc_session_t *session) {
     const long timeout_ms = 5000;
-    
+
     fdwatch_zero();
     fdwatch_add_fd(session->sock);
     fdwatch_set_fd(session->sock, FDW_WRITE);

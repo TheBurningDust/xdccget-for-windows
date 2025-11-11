@@ -7,6 +7,10 @@
 
 #ifndef _MSC_VER
 #include <unistd.h>
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #endif
 
 #ifdef _MSC_VER

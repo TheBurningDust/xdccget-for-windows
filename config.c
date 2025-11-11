@@ -114,7 +114,7 @@ static sds getDefaultConfigContent() {
     content = sdscatprintf(content, "# default logging level, valid options: information, warn, error, quiet\n");
     content = sdscatprintf(content, "logLevel=information\n");
     content = sdscatprintf(content, "# allow all certificates and dont validate them\n");
-    content = sdscatprintf(content, "allowAllCerts=true\n");
+    content = sdscatprintf(content, "#allowAllCerts=true\n");
     content = sdscatprintf(content, "# stay connected after downloads finished to automatically verify checksums\n");
     content = sdscatprintf(content, "verifyChecksums=false\n");
     content = sdscatprintf(content, "# Do not send file offsets to the bots if set to false. Can be used on bots where the transfer gets stucked after a short while.\n");

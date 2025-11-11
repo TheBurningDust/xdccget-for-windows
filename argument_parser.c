@@ -13,12 +13,12 @@
 #include "config.h"
 #include "os_specific.h"
 
-const char *argp_program_version = "xdccget 1.0";
+const char *argp_program_version = "xdccget 1.8";
 const char *argp_program_bug_address ="<nobody@nobody.org>";
 
 /* Program documentation. */
 static char doc[] =
-"xdccgget -- download from cmd with xdcc";
+"xdccget -- download from cmd with xdcc";
 
 /* A description of the arguments we accept. */
 static char args_doc[] = "<server> <channel(s)> <bot cmds>";
@@ -29,6 +29,7 @@ static char args_doc[] = "<server> <channel(s)> <bot cmds>";
 #define OPT_DELAY_COMMAND 4
 #define OPT_LISTEN_IP_COMMAND 5
 #define OPT_LISTEN_PORT_COMMAND 6
+#define OPT_ACCEPT_ALL_CERTS 7
 
 static void set_quiet_loglevel(struct xdccGetConfig* cfg) {
     DBG_OK("setting log-level as quiet.");
@@ -110,6 +111,9 @@ static void set_listen_ip(struct xdccGetConfig* cfg, char* arg) {
     cfg->listen_ip = val;
 }
 
+static void set_accept_all_certs(struct xdccGetConfig* cfg) {
+    cfg_set_bit(cfg, ALLOW_ALL_CERTS_FLAG);
+}
 
 static void set_listen_port(struct xdccGetConfig* cfg, char* arg) {
     cfg->listen_port = (unsigned short)strtoul(arg, NULL, 0);
@@ -125,6 +129,25 @@ static void set_use_ipv6(struct xdccGetConfig* cfg) {
     cfg_set_bit(cfg, USE_IPV6_FLAG);
 }
 
+#ifdef _MSC_VER
+static int show_version_info_called = 0;
+
+static void show_version_info(struct xdccGetConfig* cfg) {
+    show_version_info_called = 1;
+    printf("%s\n", argp_program_version);
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x)
+
+#if defined(_MSC_FULL_VER)
+#define MSVC_VERSION_STR STR(_MSC_FULL_VER)
+#elif defined(_MSC_VER)
+#define MSVC_VERSION_STR STR(_MSC_VER)
+#else
+#define MSVC_VERSION_STR "unknown"
+#endif
+    printf("compiled with Visual Studio version %s and %s\n", MSVC_VERSION_STR, OPENSSL_VERSION_TEXT);
+}
+#endif
 
 #ifndef _MSC_VER
 /* The options we understand. */
@@ -142,6 +165,7 @@ static struct argp_option options[] = {
 {"nick",   'n', "<nickname>",      0,  "Use this specific nickname while connecting to the irc-server.", 0 },
 {"login",   'l', "<login-command>",      0,  "Use this login-command to authorize your nick to the irc-server after connecting.", 0 },
 {"accept-all-nicks",   OPT_ACCEPT_ALL_NICKS, 0,      0,  "Accept DCC send requests from ALL bots and do not verify any nicknames of incoming dcc requests.", 0 },
+{"accept-all-certs",   OPT_ACCEPT_ALL_CERTS, 0,      0,  "Accept all certificates in tls handshakes, ignore all errors and do not abort the handshake on any tls related error.", 0 },
 {"dont-confirm-offsets",   OPT_DONT_CONFIRM_OFFSETS, 0,      0,  "Do not send file offsets to the bots. Can be used on bots where the transfer gets stucked after a short while.", 0 },
 {"throttle",  OPT_THROTTLE_DOWNLOAD, "<speed>",      0,  "Limit the maximum transfer speed for the downloads in each xdccget instance to the specified value per seconds. valid suffixes are KByte, MByte and TByte - e.g. 1Mbyte throttles the speed to 1MByte/s.", 0 },
 {"delay", OPT_DELAY_COMMAND, "<time in seconds>",      0,  "Delay the sending of the xdcc send ccommand to specified seconds.", 0 },
@@ -196,6 +220,9 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state) {
 
     case OPT_ACCEPT_ALL_NICKS:
         set_accept_all_nicks(cfg);
+        break;
+    case OPT_ACCEPT_ALL_CERTS:
+        set_accept_all_certs(cfg);
         break;
     case OPT_DONT_CONFIRM_OFFSETS:
         set_dont_confirm_offsets(cfg);
@@ -260,11 +287,13 @@ static struct option long_options[] = {
         {"nick",  required_argument, NULL, 'n'},
         {"login",  required_argument, NULL, 'l'},
         {"accept-all-nicks",  no_argument, NULL, 0},
+        {"accept-all-certs",  no_argument, NULL, 0},
         {"dont-confirm-offsets",  no_argument, NULL, 0},
         {"throttle",  required_argument, NULL, 0},
         {"delay",  required_argument, NULL, 0},
         {"listen-ip",  required_argument, NULL, 0},
         {"listen-port",  required_argument, NULL, 0},
+        {"version",  no_argument, NULL, 0},
         {NULL,      0,                 NULL, 0}
 };
 
@@ -275,6 +304,9 @@ static void eval_long_option(struct xdccGetConfig* cfg, char* option_name, char*
     }
     else if (strcmp(option_name, "accept-all-nicks") == 0) {
         set_accept_all_nicks(cfg);
+    }
+    else if (strcmp(option_name, "accept-all-certs") == 0) {
+        set_accept_all_certs(cfg);
     }
     else if (strcmp(option_name, "dont-confirm-offsets") == 0) {
         set_dont_confirm_offsets(cfg);
@@ -290,6 +322,9 @@ static void eval_long_option(struct xdccGetConfig* cfg, char* option_name, char*
     }
     else if (strcmp(option_name, "listen-port") == 0) {
         set_listen_port(cfg, optarg);
+    }
+    else if (strcmp(option_name, "version") == 0) {
+        show_version_info(cfg);
     }
     else {
         DBG_ERR("invalid argument selection %s", option_name);
@@ -392,8 +427,13 @@ void parseArguments(int argc, char** argv, struct xdccGetConfig* cfg) {
         actual_argument_counter++;
     }
 
-    if (actual_argument_counter != 3) {
-        print_usage_message();
+    if (!show_version_info_called) {
+        if (actual_argument_counter != 3) {
+            print_usage_message();
+            exitPgm(0);
+        }
+    }
+    else {
         exitPgm(0);
     }
 
@@ -478,6 +518,7 @@ sds* parseChannels(char *channelString, uint32_t *numChannels) {
     sds *splittedString = sdssplitlen(channelString, strlen(channelString), seperator, strlen(seperator), &numFound);
     if (splittedString == NULL) {
         DBG_ERR("splittedString = NULL, cant continue from here.");
+        return NULL;
     }
     int i = 0;
 
@@ -500,6 +541,7 @@ struct dccDownload** parseDccDownloads(char *dccDownloadString, unsigned int *nu
 
     if (splittedString == NULL) {
         DBG_ERR("splittedString = NULL, cant continue from here.");
+        return NULL;
     }
 
     struct dccDownload **dccDownloadArray = (struct dccDownload**) Calloc(numFound + 1, sizeof (struct dccDownload*));

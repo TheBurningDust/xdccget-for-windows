@@ -37,10 +37,10 @@ static void* checksum_verification_thread(void* args) {
     logprintf(LOG_INFO, "Verifying md5-checksum '%s'!", md5ChecksumString);
 
     HashAlgorithm* md5algo = createHashAlgorithm("MD5");
-    uchar hashFromFile[md5algo->hashSize];
+    unsigned char hashFromFile[md5algo->hashSize];
 
     getHashFromFile(md5algo, data->completePath, hashFromFile);
-    uchar* expectedHash = convertHashStringToBinary(md5algo, md5ChecksumString);
+    unsigned char *expectedHash = convertHashStringToBinary(md5algo, md5ChecksumString);
 
     if (md5algo->equals(expectedHash, hashFromFile)) {
         logprintf(LOG_INFO, "Checksum-Verification succeeded!");
@@ -123,9 +123,7 @@ void startChecksumThread(sds md5ChecksumSDS, sds completePath) {
     pthread_create(&threadID, NULL, checksum_verification_thread, threadData);
 }
 
-void enableAnsiColorCodes() {
-
-}
+void enableAnsiColorCodes() {}
 
 bool shouldColorOutput() {
     return true;

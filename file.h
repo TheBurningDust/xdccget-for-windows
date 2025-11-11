@@ -60,16 +60,7 @@ static inline bool dir_exists(char *dir) {
     return false;
 }
 
-static inline off_t get_file_size(char *filename){
-    struct stat st;
-    
-    if (stat(filename, &st) != 0) {
-        logprintf(LOG_ERR, "Cant stat the file %s. Exiting now.", filename);
-        exitPgm(EXIT_FAILURE);
-    }
-    
-    return st.st_size;
-}
+irc_dcc_size_t get_file_size(char* filename);
 
 #ifdef FILE_API
 static inline size_t Read (file_io_t *fd, void *buf, size_t count) {
@@ -125,7 +116,7 @@ static inline void Write(file_io_t *fd, const void *buf, size_t count) {
     
 file_io_t* Open(const char *pathname, char *mode);
 void Close(file_io_t *fd);
-void Seek(file_io_t *fd, long offset, int whence);
+void Seek(file_io_t *fd, uint64_t offset, int whence);
 void readFile(char *filename, FileReader callback, void *ctx);
 
 #endif	/* FILE_H */

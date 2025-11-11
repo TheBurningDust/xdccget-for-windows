@@ -16,9 +16,19 @@
 #if defined (ENABLE_SSL)
 #ifndef _MSC_VER
 #include <pthread.h>
+#include <dirent.h>
+#else
+#include <windows.h>
+#include <openssl/applink.c>
 #endif
-#include <openssl/ssl.h>
-#include <openssl/x509.h>
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <openssl/pem.h>
+#include <openssl/x509_vfy.h>
+#include <openssl/err.h>
+
 
 #ifndef X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS
 # define X509_CHECK_FLAG_NO_PARTIAL_WILDCARDS 0
@@ -33,6 +43,109 @@ static SSL_CTX * ssl_context = NULL;
 int isSslIntitialized() {
     return ssl_context != NULL;
 }
+
+#if 0
+static void list_tls_groups(int version, int all)
+{
+    SSL_CTX* ctx = NULL;
+    STACK_OF(OPENSSL_CSTRING)* groups;
+    size_t i, num;
+
+    if ((groups = sk_OPENSSL_CSTRING_new_null()) == NULL) {
+       printf("ERROR: Memory allocation\n");
+        return;
+    }
+    if ((ctx = SSL_CTX_new(TLS_method())) == NULL) {
+        printf("ERROR: Memory allocation\n");
+        goto err;
+    }
+    if (!SSL_CTX_set_min_proto_version(ctx, version)
+        || !SSL_CTX_set_max_proto_version(ctx, version)) {
+        printf("ERROR: setting TLS protocol version\n");
+        goto err;
+    }
+    if (!SSL_CTX_get0_implemented_groups(ctx, all, groups)) {
+        printf("ERROR: getting implemented TLS group list\n");
+        goto err;
+    }
+    num = sk_OPENSSL_CSTRING_num(groups);
+    for (i = 0; i < num; ++i) {
+        printf("%s%c", sk_OPENSSL_CSTRING_value(groups, i),
+            (i < num - 1) ? ':' : '\n');
+    }
+err:
+    SSL_CTX_free(ctx);
+    sk_OPENSSL_CSTRING_free(groups);
+    return;
+}
+#endif
+
+static int add_pem_file_to_store(X509_STORE* store, const char* path) {
+    FILE* f = fopen(path, "r");
+    if (!f) return 0;
+    X509* cert = PEM_read_X509(f, NULL, NULL, NULL);
+    fclose(f);
+    if (!cert) return 0;
+    if (!X509_STORE_add_cert(store, cert)) {
+        ERR_clear_error();
+    }
+    X509_free(cert);
+    DBG_OK("loaded pem file %s into the trusted x509 store of openssl!", path);
+    return 1;
+}
+
+static bool is_pem_cert_file(const char* filename) {
+    return ends_with(filename, ".pem") || ends_with(filename, ".crt") || ends_with(filename, ".cer");
+}
+
+#ifndef _MSC_VER
+static int load_pems_from_dir_into_store(X509_STORE* store, const char* dirpath) {
+    DIR* d = opendir(dirpath);
+    if (!d) return 0;
+    struct dirent* ent;
+    char fullpath[PATH_MAX];
+    while ((ent = readdir(d)) != NULL) {
+        if (ent->d_name[0] == '.') continue;
+        const char* name = ent->d_name;
+        if (!is_pem_cert_file(name)) {
+            continue;
+        }
+        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, ent->d_name);
+        add_pem_file_to_store(store, fullpath);
+    }
+    closedir(d);
+    return 1;
+}
+#else
+static int load_pems_from_dir_into_store(X509_STORE* store, const char* dirpath) {
+    char search_path[MAX_PATH];
+    WIN32_FIND_DATAA fd;
+    HANDLE hFind = INVALID_HANDLE_VALUE;
+    int any = 0;
+
+    snprintf(search_path, MAX_PATH, "%s\\*.*", dirpath);
+
+    hFind = FindFirstFileA(search_path, &fd);
+    if (hFind == INVALID_HANDLE_VALUE) return 0;
+
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            continue;
+        }
+        const char* name = fd.cFileName;
+        if (!is_pem_cert_file(name)) {
+            continue;
+        }
+        char fullpath[MAX_PATH];
+        snprintf(fullpath, MAX_PATH, "%s\\%s", dirpath, name);
+        if (add_pem_file_to_store(store, fullpath)) {
+            any = 1;
+        }
+    } while (FindNextFileA(hFind, &fd) != 0);
+    FindClose(hFind);
+    return any;
+}
+#endif
 
 int initSslContext(irc_session_t *session) {
     // better settings, but some bots dont support those all...
@@ -57,7 +170,6 @@ int initSslContext(irc_session_t *session) {
     if (!ssl_context)
         return LIBIRC_ERR_SSL_INIT_FAILED;
 
-
     if (SSL_CTX_set_cipher_list(ssl_context, PREFERRED_CIPHERS) != 1)
         return LIBIRC_ERR_SSL_INIT_FAILED;
 
@@ -70,10 +182,46 @@ int initSslContext(irc_session_t *session) {
         SSL_CTX_set_verify(ssl_context, SSL_VERIFY_PEER, session->verify_callback);
     }
     
-    SSL_CTX_set_default_verify_paths(ssl_context);
+    if (!SSL_CTX_set_default_verify_paths(ssl_context)) {
+        return LIBIRC_ERR_SSL_INIT_FAILED;
+    }
+
+    if (!SSL_CTX_set_min_proto_version(ssl_context, TLS1_2_VERSION)) {
+        return LIBIRC_ERR_SSL_INIT_FAILED;
+    }
+
+    /*
+    *
+    list_tls_groups(TLS1_3_VERSION, 1);
+
+    if (!SSL_CTX_set1_groups_list(ssl_context, "X25519")) {
+        return LIBIRC_ERR_SSL_INIT_FAILED;
+    } */
 
     // Enable SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER so we can move the buffer during sending
     SSL_CTX_set_mode(ssl_context, SSL_CTX_get_mode(ssl_context) | SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER | SSL_MODE_ENABLE_PARTIAL_WRITE);
+
+    X509_STORE* store = X509_STORE_new();
+    int ret = X509_STORE_set_default_paths(store);
+
+    if (ret != 1) {
+        return LIBIRC_ERR_SSL_INIT_FAILED;
+    }
+
+    sds localCertDir = get_custom_local_certs_folder();
+
+    if (!load_pems_from_dir_into_store(store, localCertDir)) {
+        logprintf(LOG_INFO, "No trusted custom pem certificates loaded from %s\n", localCertDir);
+    }
+    else {
+        logprintf(LOG_INFO, "Loaded trusted custom PEM certificates from %s into openssl context!\n", localCertDir);
+    }
+    sdsfree(localCertDir);
+    if (ret != 1) {
+        return LIBIRC_ERR_SSL_INIT_FAILED;
+    }
+    X509_STORE_set_flags(store, X509_V_FLAG_PARTIAL_CHAIN);
+    SSL_CTX_set_cert_store(ssl_context, store);
 
     return 0;
 }

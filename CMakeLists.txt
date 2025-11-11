@@ -42,6 +42,7 @@ add_definitions(-DENABLE_ANSI_COLORS)
 add_definitions(-DFILE_API)
 add_definitions(-DENABLE_IPV6)
 add_definitions(-D_FILE_OFFSET_BITS=64)
+add_definitions(-DHOSTNAME_VALIDATION)
 
 if(${CMAKE_SYSTEM_NAME} STREQUAL "Linux")
    add_definitions(-DHAVE_POLL)

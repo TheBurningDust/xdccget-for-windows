@@ -580,7 +580,6 @@ static void accept_dcc_send(irc_session_t * session, const char * nick, const ch
             session->lasterror = err;
             return;
         }
-
         (*session->callbacks.event_dcc_send_req) (session,
                 nick,
                 inet_ntoa(dcc->remote_addr.sin_addr),
@@ -590,6 +589,21 @@ static void accept_dcc_send(irc_session_t * session, const char * nick, const ch
 
         dcc->received_file_size = size;
     }
+}
+
+static inline int sscanf_wrapper(const char *const buffer, const char *const format, ...) {
+    int rc;
+
+    va_list args;
+    va_start(args, format);
+#ifdef _MSC_VER
+    rc = vsscanf_s(buffer, format, args);
+#else
+    rc = vsscanf(buffer, format, args);
+#endif
+    va_end(args);
+
+    return rc;
 }
 
 static void accept_reverse_dcc_send(irc_session_t * session, const char * nick, const char * req, char *filename, unsigned long ip, irc_dcc_size_t size, unsigned long token, int ssl) {
@@ -654,17 +668,18 @@ static void libirc_dcc_request(irc_session_t * session, irc_parser_result_t *res
     }
 
 #ifdef _MSC_VER
-    if (sscanf_s(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu 0 %" IRC_DCC_SIZE_T_FORMAT" %lu", filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &size, &token) == 4) {
+    if (sscanf_wrapper(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu 0 %" IRC_DCC_SIZE_T_FORMAT" %lu", filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &size, &token) == 4) {
 #else
-    if (sscanf(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu 0 %" IRC_DCC_SIZE_T_FORMAT" %lu", filenamebuf, &ip, &size, &token) == 4) {
+    if (sscanf_wrapper(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu 0 %" IRC_DCC_SIZE_T_FORMAT" %lu", filenamebuf, &ip, &size, &token) == 4) {
 #endif
-        accept_reverse_dcc_send(session, result->nick, req, filenamebuf, ip, size, token, NO_SSL);
+       accept_reverse_dcc_send(session, result->nick, req, filenamebuf, ip, size, token, NO_SSL);
         return;
     }
+
 #ifdef _MSC_VER
-    if (sscanf_s(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &port, &size) == 4) {
+    if (sscanf_wrapper(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &port, &size) == 4) {
 #else
-    if (sscanf(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, &ip, &port, &size) == 4) {
+    if (sscanf_wrapper(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, &ip, &port, &size) == 4) {
 #endif
         accept_dcc_send(session, result->nick, req, filenamebuf, ip, size, port, NO_SSL);
         return;
@@ -672,17 +687,17 @@ static void libirc_dcc_request(irc_session_t * session, irc_parser_result_t *res
     /*this matches file names that contain spaces and are are delimited by quotes,
       so for example "This is a really long file name with spaces" would match*/
 #ifdef _MSC_VER
-    else if (sscanf_s(req, "DCC SEND \"%"LIBIRC_BUFFER_SIZE_STR"[^\"]\" %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &port, &size) == 4) {
+    else if (sscanf_wrapper(req, "DCC SEND \"%"LIBIRC_BUFFER_SIZE_STR"[^\"]\" %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &port, &size) == 4) {
 #else
-    else if (sscanf(req, "DCC SEND \"%"LIBIRC_BUFFER_SIZE_STR"[^\"]\" %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, &ip, &port, &size) == 4) {
+    else if (sscanf_wrapper(req, "DCC SEND \"%"LIBIRC_BUFFER_SIZE_STR"[^\"]\" %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, &ip, &port, &size) == 4) {
 #endif
          accept_dcc_send(session, result->nick, req, filenamebuf, ip, size, port, NO_SSL);
         return;
     }
 #ifdef _MSC_VER
-    else if (sscanf_s(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu", filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &port) == 3) {
+    else if (sscanf_wrapper(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu", filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &port) == 3) {
 #else
-    else if (sscanf(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu", filenamebuf,  &ip, &port) == 3) {
+    else if (sscanf_wrapper(req, "DCC SEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu", filenamebuf, &ip, &port) == 3) {
 #endif
         size = 0;
         accept_dcc_send(session, result->nick, req, filenamebuf, ip, size, port, NO_SSL);
@@ -690,19 +705,15 @@ static void libirc_dcc_request(irc_session_t * session, irc_parser_result_t *res
     }
 #if defined (ENABLE_SSL)
 #ifdef _MSC_VER
-    else if (sscanf_s(req, "DCC SSEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &port, &size) == 4) {
+    else if (sscanf_wrapper(req, "DCC SSEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, LIBIRC_BUFFER_SIZE, &ip, &port, &size) == 4) {
 #else
-    else if (sscanf(req, "DCC SSEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, &ip, &port, &size) == 4) {
+    else if (sscanf_wrapper(req, "DCC SSEND %"LIBIRC_BUFFER_SIZE_STR"s %lu %hu %" IRC_DCC_SIZE_T_FORMAT, filenamebuf, &ip, &port, &size) == 4) {
 #endif
         accept_dcc_send(session, result->nick, req, filenamebuf, ip, size, port, USE_SSL);
         return;
     }
 #endif
-#ifdef _MSC_VER
-    else if (sscanf_s(req, "DCC ACCEPT file.ext 0 %" IRC_DCC_SIZE_T_FORMAT" %lu", &size, &token) == 2) {
-#else
-    else if (sscanf(req, "DCC ACCEPT file.ext 0 %" IRC_DCC_SIZE_T_FORMAT" %lu", &size, &token) == 2) {
-#endif
+    else if (sscanf_wrapper(req, "DCC ACCEPT file.ext 0 %" IRC_DCC_SIZE_T_FORMAT" %lu", &size, &token) == 2) {
         DBG_OK("---- got dcc accept reverse req: %" IRC_DCC_SIZE_T_FORMAT " %lu ---", size, token);
         irc_dcc_session_t * dcc;
         dcc = libirc_find_dcc_session_by_token(session, token, 1);
@@ -716,7 +727,7 @@ static void libirc_dcc_request(irc_session_t * session, irc_parser_result_t *res
             return;
         }
 
-        dcc->state = LIBIRC_STATE_INIT;
+        dcc->state = LIBIRC_STATE_INIT_PASSIVE;
 
         dcc->file_confirm_offset = size;
 
@@ -725,11 +736,7 @@ static void libirc_dcc_request(irc_session_t * session, irc_parser_result_t *res
         (*dcc->reverse_cb) (session, dcc->id, 1, dcc->ctx, NULL, size, result->nick, "file.ext", token);
         return;
     }
-#ifdef _MSC_VER
-    else if (sscanf_s(req, "DCC ACCEPT file.ext %hu %" IRC_DCC_SIZE_T_FORMAT, &port, &size) == 2) {
-#else
-    else if (sscanf(req, "DCC ACCEPT file.ext %hu %" IRC_DCC_SIZE_T_FORMAT, &port, &size) == 2) {
-#endif
+    else if (sscanf_wrapper(req, "DCC ACCEPT file.ext %hu %" IRC_DCC_SIZE_T_FORMAT, &port, &size) == 2) {
         DBG_OK("---- got dcc accept req: %hu %" IRC_DCC_SIZE_T_FORMAT " ---", port, size);
         irc_dcc_session_t * dcc;
         dcc = libirc_find_dcc_session_by_port(session, port, 1);
@@ -743,7 +750,7 @@ static void libirc_dcc_request(irc_session_t * session, irc_parser_result_t *res
             return;
         }
 
-        dcc->state = LIBIRC_STATE_INIT_PASSIVE;
+        dcc->state = LIBIRC_STATE_INIT;
 
         dcc->file_confirm_offset = size;
 
@@ -765,6 +772,7 @@ int irc_dcc_accept(irc_session_t * session, irc_dcc_t dccid, void * ctx, irc_dcc
         return 1;
 
     if (dcc->state != LIBIRC_STATE_INIT) {
+        DBG_OK("dcc->state != LIBIRC_STATE_INIT");
         session->lasterror = LIBIRC_ERR_STATE;
         libirc_mutex_unlock(&session->mutex_dcc);
         return 1;
@@ -853,7 +861,7 @@ int irc_dcc_accept_reverse(irc_session_t * session, irc_dcc_t dccid, void * ctx,
     if (!dcc)
         return 1;
 
-    if (dcc->state != LIBIRC_STATE_INIT) {
+    if (dcc->state != LIBIRC_STATE_INIT_PASSIVE) {
         session->lasterror = LIBIRC_ERR_STATE;
         libirc_mutex_unlock(&session->mutex_dcc);
         return 1;
@@ -912,7 +920,6 @@ int irc_dcc_resume(irc_session_t * session, irc_dcc_t dccid, void * ctx, irc_dcc
     dcc->state = LIBIRC_STATE_WAITING_FOR_RESUME_ACK;
     libirc_mutex_unlock(&session->mutex_dcc);
     return 0;
-
 }
 
 int irc_dcc_decline(irc_session_t * session, irc_dcc_t dccid) {

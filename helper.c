@@ -15,6 +15,7 @@
 
 #ifdef ENABLE_SSL
 #include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #endif
 
 #include "helper.h"
@@ -390,8 +391,100 @@ static void print_validation_errstr(long verify_result) {
     }
 }
 
+static int write_x509_certificate_to_file(X509* cert, const char* filename) {
+    FILE *fp = fopen(filename, "wb");
+    if (fp == NULL) {
+        perror("Error opening file");
+        return -1;
+    }
+
+    if (PEM_write_X509(fp, cert) == 0) {
+        logprintf(LOG_ERR, "Error writing certificate to file\n");
+        fclose(fp);
+        return -1;
+    }
+
+    fclose(fp);
+    return 0;
+}
+
+static void add_x509_cert_to_local_ca_folder(X509* cert) {
+    sds filename = sdsnewlen("", 30);
+    sds filepath = NULL;
+    sds localCertFolder = get_custom_local_certs_folder();
+    if (!dir_exists(localCertFolder)) {
+        if (mkdir(localCertFolder, 0755) == -1) {
+            DBG_WARN("cant create dir %s", localCertFolder);
+            perror("mkdir");
+        }
+    }
+    sdsfree(localCertFolder);
+
+    do {
+        localCertFolder = get_custom_local_certs_folder();
+        if (filepath != NULL) {
+            sdsfree(filepath);
+        }
+        createRandomNick(29, filename);
+        filepath = sdscatprintf(localCertFolder, "%s%s.pem", getPathSeperator(), filename);
+    } while (file_exists(filepath));
+    write_x509_certificate_to_file(cert, filepath);
+    sdsfree(filepath);
+    sdsfree(filename);
+}
+
+static void to_lowercase(char* str) {
+    for (int i = 0; str[i] != '\0'; i++) {
+        str[i] = tolower((unsigned char)str[i]);
+    }
+}
+
+static bool ask_for_yes_via_console_input() {
+    char input[10];
+    char *ret = fgets(input, sizeof(input), stdin);
+    input[strcspn(input, "\n")] = '\0';
+    if (ret == NULL) {
+        return false;
+    }
+    to_lowercase(input);
+    return (strcmp(input, "y") == 0 || strcmp(input, "yes") == 0);
+}
+
+static char* print_cert_to_string(X509 *cert) {
+    BIO* out = BIO_new(BIO_s_mem());
+    X509_print(out, cert);
+    size_t len;
+    char* cert_str = NULL;
+
+    len = BIO_get_mem_data(out, &cert_str);
+
+    char* result = malloc(len + 1);
+    if (result) {
+        memcpy(result, cert_str, len);
+        result[len] = '\0';
+    }
+    BIO_free(out);
+    return result;
+}
+
+static X509* get_ca_cert_of_chain(STACK_OF(X509) *chain) {
+    if (chain && sk_X509_num(chain) > 1) {
+        X509* ca_cert = sk_X509_value(chain, sk_X509_num(chain) - 1);
+        return ca_cert;
+    }
+
+    return NULL;
+}
+
+static void print_cert_to_console(X509 *cert) {
+    char* cerString = print_cert_to_string(cert);
+    printf("%s\n", cerString);
+    free(cerString);
+}
+
 int openssl_check_certificate_callback(int verify_result, X509_STORE_CTX *ctx) {
     X509* cert = X509_STORE_CTX_get_current_cert(ctx);
+    STACK_OF(X509) *chain = X509_STORE_CTX_get0_chain(ctx);
     struct xdccGetConfig *cfg = getCfg();
     
     if (cert == NULL) {
@@ -406,9 +499,10 @@ int openssl_check_certificate_callback(int verify_result, X509_STORE_CTX *ctx) {
     logprintf(LOG_INFO, "%s", subj);
     logprintf(LOG_INFO, "The issuer was:");
     logprintf(LOG_INFO, "%s", issuer);
-    
+
     if (!verify_result) {
-        print_validation_errstr(X509_STORE_CTX_get_error(ctx));
+        long errorCode = X509_STORE_CTX_get_error(ctx);
+        print_validation_errstr(errorCode);
     }
     else {
         logprintf(LOG_INFO, "This certificate is trusted");
@@ -421,7 +515,37 @@ int openssl_check_certificate_callback(int verify_result, X509_STORE_CTX *ctx) {
         return 1;
     }
 
+    if (!verify_result) {
+        long errorCode = X509_STORE_CTX_get_error(ctx);
+        if (errorCode == X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN || errorCode == X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT) {
+            print_cert_to_console(cert);
+            logprintf(LOG_WARN, "there was a problem while validating this self signed certificate from the irc server!\ndo you want to continue and add the certificate to your local trusted certificates?\nenter y or yes to trust and add the certificate to your local trusted certificates or any other key to abort the tls handshake.\n");
+            if (ask_for_yes_via_console_input()) {
+                add_x509_cert_to_local_ca_folder(cert);
+                return 1;
+            }
+            
+        }
+        else {
+            X509* ca_cert = get_ca_cert_of_chain(chain);
+            if (ca_cert != NULL && X509_check_ca(cert) != 0) {
+                print_cert_to_console(ca_cert);
+                logprintf(LOG_WARN, "there was a problem while validating this certificate from the irc server!\ndo you want to continue and add this ca certificate to your local trusted certificates?\nenter y or yes to trust and add the ca certificate to your local trusted certificates or any other key to abort the tls handshake.\n");
+                if (ask_for_yes_via_console_input()) {
+                    add_x509_cert_to_local_ca_folder(ca_cert);
+                    return 1;
+                }
+            }
+            else {
+                print_cert_to_console(cert);
+                logprintf(LOG_WARN, "there was a problem while validating this certificate from the irc server!\ndo you want to continue anyway?\nenter y or yes to continue or any other key to abort the tls handshake.\n");
+                if (ask_for_yes_via_console_input()) {
+                    return 1;
+                }
+            }
+        }
+    }
+
     return verify_result;
 }
-
 #endif
