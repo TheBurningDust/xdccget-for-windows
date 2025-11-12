@@ -71,6 +71,14 @@ xdccget -i --listen-ip=2.2.2.2 --listen-port=44444 --delay=70 "irc.sampel.net" "
 
 If this does not work for you, please make sure, that the port is not blocked in your router and in your firewall. Normally all incoming connections are blocked, therefore you have to manually enable your chosen port.
 
+If you need to login with nickserv in order to gain access to a certain channel on the irc server you can use the --nick option in combination with --login like in this example:
+
+``` 
+xdccget -i --nick="YourReservedNickname" --login="NickServ identify <insert your own password here>" "irc.sampel.net" "#best-channel" "super-duper-bot xdcc send #34"
+``` 
+
+This will identify your nickname with the password entered after identify such that you are recognized after the connection to the irc server is established.
+
 This is the basic usage of xdccget. You can call xdccget --help to understand all currently supported arguments.
 xdccget also uses a config file, which will be placed at your homefolder in .xdccget/config. You can modify
 the default parameters to your matters quickly.
