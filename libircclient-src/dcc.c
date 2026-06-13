@@ -861,7 +861,7 @@ int irc_dcc_accept_reverse(irc_session_t * session, irc_dcc_t dccid, void * ctx,
     if (!dcc)
         return 1;
 
-    if (dcc->state != LIBIRC_STATE_INIT_PASSIVE) {
+    if (dcc->state != LIBIRC_STATE_INIT) {
         session->lasterror = LIBIRC_ERR_STATE;
         libirc_mutex_unlock(&session->mutex_dcc);
         return 1;
