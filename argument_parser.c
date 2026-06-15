@@ -280,6 +280,7 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state) {
 static struct option long_options[] = {
     /*   NAME       ARGUMENT           FLAG  SHORTNAME */
         {"verbose",     no_argument, NULL, 'v'},
+        {"warn",     no_argument, NULL, 'w'},
         {"quiet",  no_argument,       NULL, 'q'},
         {"information",  no_argument, NULL, 'i'},
         {"checksum-verify", no_argument,       NULL, 0},
