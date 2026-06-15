@@ -152,7 +152,8 @@ static void show_version_info(struct xdccGetConfig* cfg) {
 #ifndef _MSC_VER
 /* The options we understand. */
 static struct argp_option options[] = {
-{"verbose",  'v', 0,      0,  "Produce verbose output", 0 },
+{"warn",  'w', 0,      0,  "Produce warn output", 0 },
+{"verbose",  'v', 0,      0,  "Produce verbose (like information level) output", 0 },
 {"quiet",    'q', 0,      0,  "Don't produce any output", 0 },
 {"information",    'i', 0,      0,  "Produce information output.", 0 },
 {"checksum-verify", 'c', 0,      0,  "Stay connected after download completed to verify checksums.", 0 },
@@ -191,6 +192,10 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state) {
         break;
 
     case 'v':
+        set_info_loglevel(cfg);
+        break;
+
+    case 'w':
         set_warn_loglevel(cfg);
         break;
 
@@ -380,6 +385,10 @@ void parseArguments(int argc, char** argv, struct xdccGetConfig* cfg) {
             break;
 
         case 'v':
+            set_info_loglevel(cfg);
+            break;
+
+        case 'w':
             set_warn_loglevel(cfg);
             break;
 
