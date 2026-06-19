@@ -114,8 +114,7 @@ int fdwatch_init()
 #ifndef _MSC_VER
     nfiles = getdtablesize();
 #else
-    // TODO: can we make this better?
-    nfiles = 1024;
+    nfiles = sysconf(_SC_OPEN_MAX);
 #endif
 #ifdef RLIMIT_NOFILE
     /* If we have getrlimit(), use that, and attempt to raise the limit. */
