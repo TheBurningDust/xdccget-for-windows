@@ -46,7 +46,7 @@ static inline void libirc_colorparser_addorcat(char ** destline, unsigned int * 
     unsigned int len = strlen(str);
 
     if (*destline) {
-        strncpy(*destline, str, len);
+        memcpy(*destline, str, len);
         *destline += len;
     }
     else
