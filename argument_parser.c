@@ -13,7 +13,7 @@
 #include "config.h"
 #include "os_specific.h"
 
-const char *argp_program_version = "xdccget 1.8";
+const char *argp_program_version = "xdccget 1.13";
 const char *argp_program_bug_address ="<nobody@nobody.org>";
 
 /* Program documentation. */
